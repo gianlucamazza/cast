@@ -10,7 +10,7 @@
  * native host.
  */
 
-const HOST_NAME = "io.github.gianluca.castbridge";
+const HOST_NAME = "it.gianlucamazza.castbridge";
 
 // --- native messaging port -------------------------------------------------
 

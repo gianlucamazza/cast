@@ -56,7 +56,7 @@ EOF
 	chmod 755 "$pkgdir/usr/bin/castbridge-nm-host"
 
 	# Native-messaging manifest, system-wide, for Firefox and LibreWolf.
-	local host="io.github.gianluca.castbridge"
+	local host="it.gianlucamazza.castbridge"
 	local template manifest
 	template="$(cat "install/$host.json.in")"
 	manifest="${template//@PATH@//usr/bin/castbridge-nm-host}"
