@@ -3,5 +3,5 @@
   "description": "Cast native messaging host (castbridge relay to the daemon)",
   "type": "stdio",
   "path": "@PATH@",
-  "allowed_extensions": ["castbridge@gianluca.local"]
+  "allowed_extensions": ["cast@gianlucamazza.it"]
 }

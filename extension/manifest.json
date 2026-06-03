@@ -6,7 +6,7 @@
 
   "browser_specific_settings": {
     "gecko": {
-      "id": "castbridge@gianluca.local",
+      "id": "cast@gianlucamazza.it",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": ["none"]
