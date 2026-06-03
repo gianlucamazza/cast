@@ -38,7 +38,20 @@ bash native/integration/build.sh               # -> <fork>/out/Default/castbridg
 `$OPENSCREEN_DIR` overrides the checkout location (default
 `~/Workspace/skill-cast/openscreen`). See `native/integration/README.md`.
 
-## Install
+## Install (users)
+
+Two pieces: the extension (browser) and the native host (system).
+
+- **Native host** — Arch/AUR: `yay -S castbridge` builds the daemon + the
+  `cast_sender` mirror helper and installs the native-messaging manifest
+  system-wide. (See `packaging/aur/PKGBUILD`.)
+- **Extension** — from [AMO](https://addons.mozilla.org) once published, or
+  install the signed `.xpi` attached to a GitHub release.
+
+The daemon is auto-started by the host on first use, inheriting the browser's
+Wayland environment (needed for window mirroring).
+
+## Install (from source)
 
 ```bash
 bash install/install-host.sh            # wrapper + native-messaging manifest
@@ -46,9 +59,17 @@ bash install/install-host.sh            # wrapper + native-messaging manifest
 #       -> extension/manifest.json
 ```
 
-The daemon is auto-started by the relay on first use (inheriting the browser's
-Wayland environment, needed for window mirroring). For a warm discovery cache,
-optionally enable `install/castbridge.service`.
+For a warm discovery cache, optionally enable `install/castbridge.service`.
+
+## Compatibility
+
+| Capability        | Support                                                        |
+| ----------------- | -------------------------------------------------------------- |
+| URL cast (direct) | mp4/webm/ogg/mp3/…, plus HLS `.m3u8` / DASH `.mpd` links       |
+| YouTube           | native (TV's YouTube app via MDX + Lounge)                     |
+| Screen mirror     | any Wayland compositor (Hyprland today; portal/PipeWire planned) |
+| Window mirror     | **Hyprland only** (uses `hyprctl`); elsewhere use screen mirror |
+| DRM / MSE / blob: | not URL-castable (Netflix/Disney+/…) — mirror instead          |
 
 ## Use
 
@@ -69,3 +90,10 @@ direct stream URL is exposed.
 npx web-ext lint -c web-ext-config.cjs
 npx web-ext run  -c web-ext-config.cjs   # launches LibreWolf with the extension
 ```
+
+CI (`.github/workflows/ci.yml`) lints/builds the extension and shellchecks the
+scripts on every push. Tagging `v*` runs `release.yml`, which signs the
+extension with `web-ext sign` (unlisted by default; `listed` via
+`workflow_dispatch` uses `amo-metadata.json`) and attaches the `.xpi` to the
+release. Set the `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` repo secrets first; locally
+`npm run sign:unlisted` does the same.
