@@ -1,0 +1,30 @@
+# Optional systemd --user unit for a warm castbridge daemon (keeps mDNS
+# discovery primed). The relay auto-starts the daemon on demand inheriting the
+# browser's environment, so this unit is optional — and ONLY useful if the
+# graphical-session environment (WAYLAND_DISPLAY, XDG_RUNTIME_DIR and, on
+# Hyprland, HYPRLAND_INSTANCE_SIGNATURE) is visible to the user manager, or
+# window/screen mirroring from the daemon will fail.
+#
+# The reliable way to export that environment is from the compositor at startup,
+# e.g. Hyprland:
+#   exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE
+# or generically via dbus-update-activation-environment --systemd.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   sed "s|@BIN@|$HOME/Workspace/skill-cast/openscreen/out/Default/castbridge|" \
+#       install/castbridge.service > ~/.config/systemd/user/castbridge.service
+#   systemctl --user enable --now castbridge.service
+#
+[Unit]
+Description=castbridge Cast daemon
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=@BIN@ --daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

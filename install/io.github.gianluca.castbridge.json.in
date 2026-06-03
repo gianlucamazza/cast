@@ -1,0 +1,7 @@
+{
+  "name": "io.github.gianluca.castbridge",
+  "description": "Cast native messaging host (castbridge relay to the daemon)",
+  "type": "stdio",
+  "path": "@PATH@",
+  "allowed_extensions": ["castbridge@gianluca.local"]
+}
