@@ -36,7 +36,7 @@ bash native/integration/build.sh               # -> <fork>/out/Default/castbridg
 ```
 
 `$OPENSCREEN_DIR` overrides the checkout location (default
-`~/Workspace/skill-cast/openscreen`). See `native/integration/README.md`.
+`~/Workspace/openscreen`). See `native/integration/README.md`.
 
 ## Install (users)
 

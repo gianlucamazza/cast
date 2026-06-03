@@ -6,11 +6,11 @@
 # Idempotent, no sudo.
 set -euo pipefail
 
-HOST_NAME="io.github.gianluca.castbridge"
+HOST_NAME="it.gianlucamazza.castbridge"
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 TEMPLATE="$REPO_DIR/install/$HOST_NAME.json.in"
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/skill-cast/openscreen}"
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
 CASTBRIDGE_BIN="${CASTBRIDGE_BIN:-$OPENSCREEN_DIR/out/Default/castbridge}"
 
 [[ -x "$CASTBRIDGE_BIN" ]] || {

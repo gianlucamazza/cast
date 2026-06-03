@@ -11,14 +11,17 @@ bash native/integration/setup-openscreen.sh   # provision the fork (once)
 bash native/integration/build.sh              # add + build castbridge
 ```
 
-`setup-openscreen.sh` provisions the fork **reproducibly** from versioned
-inputs in `openscreen.pin`:
+`setup-openscreen.sh` provisions the checkout **reproducibly** from versioned
+inputs in `openscreen.pin`, with two interchangeable strategies:
 
-1. clones depot_tools and writes the gclient solution (siblings of the checkout),
-2. clones openscreen and checks out the pinned commit,
-3. `gclient sync` for third_party deps,
-4. applies the Wayland/H.264 mirror patch (`patches/0001-*.patch`) with `git am`,
-5. `gn gen out/Default` with the recorded `gn_args`.
+- **default** — clone the private fork (`fork` @ `fork_branch`) straight at the
+  patched branch. Fast, no `git am`; needs SSH access to the fork.
+- **`--from-upstream`** — clone upstream openscreen at the `pin` and apply the
+  versioned patch (`patches/0001-*.patch`) with `git am`. No fork access needed;
+  use this in CI or when sharing with others.
+
+Both then `gclient sync` the third_party deps and `gn gen out/Default` with the
+recorded `gn_args`, ending at the same patched tree.
 
 `build.sh` is the per-change entry point. It:
 
@@ -37,14 +40,15 @@ The resulting binary is `<fork>/out/Default/castbridge` (sibling of
 
 ## Pinned inputs
 
-`openscreen.pin` records everything needed to rebuild the fork: the upstream
-`pin` commit, the `patch` path, the expected `patched` HEAD, and the `gn_args`.
-To bump openscreen, re-cut the patch onto the new commit and update this file.
+`openscreen.pin` records everything needed to rebuild the checkout: the `fork`
+URL + `fork_branch`, the upstream `pin` commit, the `patch` path, the expected
+`patched` HEAD, and the `gn_args`. To bump openscreen, rebase the fork branch
+onto the new commit, re-cut the patch (`git format-patch`), and update this file.
 
 ## Configuration
 
 - `OPENSCREEN_DIR` — path to the fork checkout (default
-  `~/Workspace/skill-cast/openscreen`).
+  `~/Workspace/openscreen`).
 - `OUT_DIR` — gn output dir relative to the checkout (default `out/Default`).
 - `NINJA` — ninja binary (auto-detected; falls back to depot_tools).
 

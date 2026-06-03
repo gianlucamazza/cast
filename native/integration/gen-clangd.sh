@@ -12,7 +12,7 @@
 # git-ignored, so nothing absolute gets committed.
 set -euo pipefail
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/skill-cast/openscreen}"
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
 OUT_DIR="${OUT_DIR:-out/Default}"
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 CLANGD="$REPO_DIR/native/castbridge/.clangd"

@@ -1,6 +1,12 @@
 # Pinned openscreen build inputs for castbridge. Consumed by setup-openscreen.sh
 # and verified by build.sh. Keep in sync with patches/ when bumping.
 
+# Private fork carrying the patch on a dedicated branch (default/fast path:
+# clone this directly — no git am needed). Needs SSH access; CI without it
+# falls back to the upstream+patch path below (setup-openscreen.sh --from-upstream).
+fork=git@github.com:gianlucamazza/openscreen.git
+fork_branch=wayland-h264-sender
+
 # Upstream openscreen commit the patch applies cleanly onto.
 pin=7675ef66c2f5901d798a3e3f3aae97ca9c96c2f6
 

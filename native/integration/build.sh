@@ -11,7 +11,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 SRC_DIR="$REPO_DIR/native/castbridge"
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/skill-cast/openscreen}"
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
 OUT_DIR="${OUT_DIR:-out/Default}"
 
 [[ -d "$OPENSCREEN_DIR" ]] || {
