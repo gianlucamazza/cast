@@ -2,11 +2,13 @@
   "name": "cast-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Firefox/LibreWolf extension that casts the current tab or mirrors the browser window to a Chromecast via the local skill-cast helpers.",
+  "description": "Firefox/LibreWolf extension that casts a media URL or mirrors the browser window/screen to a Chromecast via the native castbridge daemon.",
   "scripts": {
     "lint": "web-ext lint -c web-ext-config.cjs",
     "start": "web-ext run -c web-ext-config.cjs",
-    "build": "web-ext build -c web-ext-config.cjs"
+    "build": "web-ext build -c web-ext-config.cjs",
+    "sign:unlisted": "web-ext sign -c web-ext-config.cjs --channel=unlisted --api-key=\"$AMO_JWT_ISSUER\" --api-secret=\"$AMO_JWT_SECRET\"",
+    "sign:listed": "web-ext sign -c web-ext-config.cjs --channel=listed --amo-metadata=amo-metadata.json --api-key=\"$AMO_JWT_ISSUER\" --api-secret=\"$AMO_JWT_SECRET\""
   },
   "devDependencies": {
     "web-ext": "^8.3.0"

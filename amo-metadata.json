@@ -1,0 +1,9 @@
+{
+  "summary": {
+    "en-US": "Cast a media URL or mirror the browser window/screen to a Chromecast, with a native openscreen backend and no third-party tools."
+  },
+  "categories": ["other"],
+  "version": {
+    "license": "MPL-2.0"
+  }
+}
