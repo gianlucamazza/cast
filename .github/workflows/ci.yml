@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: Lint & build extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save web-ext@^8.3.0
+      - name: web-ext lint
+        run: npx web-ext lint -c web-ext-config.cjs
+      - name: web-ext build
+        run: npx web-ext build -c web-ext-config.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-xpi
+          path: .web-ext-artifacts/*.zip
+          if-no-files-found: error
+
+  shell:
+    name: Shellcheck scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck --severity=error \
+            install/*.sh native/integration/*.sh
