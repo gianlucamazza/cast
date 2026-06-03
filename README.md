@@ -19,9 +19,14 @@ LibreWolf ──native messaging──► castbridge --nm-host ──unix socket
   page (native port + push events + badge + context menus), content script media
   detection.
 - `native/castbridge/` — the C++ daemon + native-messaging relay (one binary,
-  `--daemon` / `--nm-host`). Built inside an openscreen fork checkout.
-- `native/integration/build.sh` — syncs the sources into the fork and builds.
+  `--daemon` / `--nm-host`). Built inside an openscreen fork checkout. See
+  [`native/castbridge/README.md`](native/castbridge/README.md) for the
+  subsystems and the IPC protocol.
+- `native/integration/` — provisions the openscreen fork and builds castbridge
+  (`setup-openscreen.sh`, `build.sh`); see its
+  [README](native/integration/README.md).
 - `install/` — native-messaging host registration + optional systemd unit.
+- `packaging/aur/` — `PKGBUILD` for the native host.
 
 ## Build
 
@@ -97,3 +102,8 @@ extension with `web-ext sign` (unlisted by default; `listed` via
 `workflow_dispatch` uses `amo-metadata.json`) and attaches the `.xpi` to the
 release. Set the `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` repo secrets first; locally
 `npm run sign:unlisted` does the same.
+
+## License
+
+BSD 3-Clause ([`LICENSE`](LICENSE)). The native backend links Google's
+openscreen (also BSD 3-Clause); that upstream license governs those sources.
