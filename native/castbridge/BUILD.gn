@@ -1,0 +1,53 @@
+# Copyright 2024. Native backend for the Cast browser extension.
+# Use of this source code is governed by a BSD-style license.
+
+import("//build_overrides/build.gni")
+import("../../gni/openscreen.gni")
+
+# Built only with the standalone platform implementation (it is itself a
+# standalone application that links openscreen discovery + platform).
+if (!build_with_chromium) {
+  openscreen_executable("castbridge") {
+    testonly = true
+    visibility = [ "../..:gn_all" ]
+
+    sources = [
+      "castbridge_main.cc",
+      "daemon.cc",
+      "daemon.h",
+      "device_lister.cc",
+      "device_lister.h",
+      "ipc_server.cc",
+      "ipc_server.h",
+      "media_controller.cc",
+      "media_controller.h",
+      "media_receiver_client.cc",
+      "media_receiver_client.h",
+      "mirror_controller.cc",
+      "mirror_controller.h",
+      "nm_relay.cc",
+      "nm_relay.h",
+      "window_resolver.cc",
+      "window_resolver.h",
+      "youtube_cast_client.cc",
+      "youtube_cast_client.h",
+      "youtube_controller.cc",
+      "youtube_controller.h",
+      "youtube_lounge.cc",
+      "youtube_lounge.h",
+    ]
+
+    deps = [
+      "../../discovery:dnssd",
+      "../../discovery:public",
+      "../../platform",
+      "../../platform:standalone_impl",
+      "../../third_party/jsoncpp",
+      "../../util",
+      "../common:certificate_boringssl",
+      "../common:public",
+      "../common/channel/proto:channel_proto",
+      "../sender:channel",
+    ]
+  }
+}
