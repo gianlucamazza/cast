@@ -1,0 +1,16 @@
+# Pinned openscreen build inputs for castbridge. Consumed by setup-openscreen.sh
+# and verified by build.sh. Keep in sync with patches/ when bumping.
+
+# Upstream openscreen commit the patch applies cleanly onto.
+pin=7675ef66c2f5901d798a3e3f3aae97ca9c96c2f6
+
+# Wayland/H.264 desktop-mirror patch (adds the cast_sender screen/window
+# capture + VAAPI encoder). Applied with `git am` on top of the pin.
+patch=patches/0001-wayland-h264-cast-streaming-sender.patch
+
+# Resulting tree commit when the patch is applied (for verification).
+patched=3ac69361174cad3a4d14f1b7b533370fce66d849
+
+# gn args for out/Default (the mirror build needs ffmpeg/opus/vpx; SDL2 is used
+# by the upstream sample sender).
+gn_args=is_debug=false have_ffmpeg=true have_libsdl2=true have_libopus=true have_libvpx=true use_sysroot=false
