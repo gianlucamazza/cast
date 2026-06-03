@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="logo">Cast</span>
+      <button id="device-chip" class="chip" title="Choose a TV">No TV</button>
+    </header>
+
+    <section id="devices" class="panel hidden">
+      <div class="panel-title">Devices</div>
+      <ul id="device-list"></ul>
+    </section>
+
+    <section id="main" class="panel">
+      <!-- IDLE -->
+      <div id="idle">
+        <button id="cast-video" class="btn primary" disabled>Cast this video</button>
+        <button id="mirror-window" class="btn">Mirror this window</button>
+        <button id="mirror-screen" class="btn">Mirror full screen</button>
+        <p id="hint" class="hint"></p>
+      </div>
+
+      <!-- MEDIA -->
+      <div id="media" class="hidden">
+        <div id="media-title" class="title">—</div>
+        <input id="seek" type="range" min="0" max="100" value="0" />
+        <div class="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+        <div class="controls">
+          <button id="playpause" class="btn icon">⏸</button>
+          <button id="stop-media" class="btn icon">⏹</button>
+          <label class="vol">🔊<input id="volume" type="range" min="0" max="100" value="50" /></label>
+        </div>
+      </div>
+
+      <!-- MIRROR -->
+      <div id="mirror" class="hidden">
+        <div class="title">Mirroring</div>
+        <div id="mirror-target" class="subtle">—</div>
+        <button id="stop-mirror" class="btn primary">Stop mirroring</button>
+      </div>
+    </section>
+
+    <p id="status-line" class="status"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

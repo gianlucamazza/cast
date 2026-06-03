@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Cast",
+  "version": "0.1.0",
+  "description": "Cast a media URL or mirror the browser window/screen to a Chromecast — native openscreen backend (castbridge), no extra apps.",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "castbridge@gianluca.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "tabs",
+    "storage",
+    "contextMenus",
+    "notifications",
+    "alarms"
+  ],
+
+  "background": {
+    "scripts": ["background/background.js"]
+  },
+
+  "action": {
+    "default_title": "Cast",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/cast-16.png",
+      "32": "icons/cast-32.png"
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "all_frames": true,
+      "run_at": "document_idle",
+      "js": ["content/detect.js"]
+    }
+  ],
+
+  "icons": {
+    "48": "icons/cast-48.png",
+    "96": "icons/cast-96.png"
+  }
+}
