@@ -10,7 +10,7 @@ HOST_NAME="it.gianlucamazza.castbridge"
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 TEMPLATE="$REPO_DIR/install/$HOST_NAME.json.in"
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/tooling/openscreen-build/openscreen}"
 CASTBRIDGE_BIN="${CASTBRIDGE_BIN:-$OPENSCREEN_DIR/out/Default/castbridge}"
 
 [[ -x "$CASTBRIDGE_BIN" ]] || {

@@ -27,7 +27,9 @@ recorded `gn_args`, ending at the same patched tree.
 
 1. verifies the checkout exists, is configured, and carries the mirror patch
    (else points you back at `setup-openscreen.sh`),
-2. copies `native/castbridge/*` into `<fork>/cast/castbridge/`,
+2. copies `native/castbridge/*` into `<fork>/cast/castbridge/`, and adds that
+   copy plus `out/Default/compile_commands.json` to the fork's
+   `.git/info/exclude` so they don't show up as untracked,
 3. adds `cast/castbridge:castbridge` to the root `gn_all` group,
 4. grants our target visibility on the few deps that whitelist only
    `cast_sender` (`discovery:dnssd`, `platform:standalone_impl`,
@@ -38,6 +40,29 @@ recorded `gn_args`, ending at the same patched tree.
 The resulting binary is `<fork>/out/Default/castbridge` (sibling of
 `cast_sender`, which `MirrorController` spawns for mirroring).
 
+## Fork checkout hygiene
+
+`build.sh` mutates the fork checkout in two ways. This is expected and is **not**
+meant to be committed to the fork:
+
+- It copies our sources into `<fork>/cast/castbridge/` and writes a generated
+  compile DB. Both are ignored locally via `.git/info/exclude` (step 2) — we
+  never edit the fork's tracked `.gitignore`, which would itself show as a diff.
+- Step 4 edits four tracked files in place (`BUILD.gn`, `discovery/BUILD.gn`,
+  `platform/BUILD.gn`, `cast/common/BUILD.gn`) with a `sed` that adds our
+  visibility/`gn_all` lines. These show as modifications in `git status` and
+  can't be ignored. To reset the checkout to a clean tree:
+
+  ```bash
+  git -C "$OPENSCREEN_DIR" checkout -- \
+    BUILD.gn discovery/BUILD.gn platform/BUILD.gn cast/common/BUILD.gn
+  ```
+
+The working checkout sits on branch `skill-cast/screen-mirror`, a local alias of
+`wayland-h264-sender` (the `fork_branch` published on the fork; see
+`openscreen.pin`) at the same commit. `setup-openscreen.sh` provisions
+`wayland-h264-sender` directly.
+
 ## Pinned inputs
 
 `openscreen.pin` records everything needed to rebuild the checkout: the `fork`
@@ -47,8 +72,10 @@ onto the new commit, re-cut the patch (`git format-patch`), and update this file
 
 ## Configuration
 
-- `OPENSCREEN_DIR` — path to the fork checkout (default
-  `~/Workspace/openscreen`).
+- `OPENSCREEN_DIR` — path to the fork checkout. Defaults to
+  `../openscreen-build/openscreen`, a sibling of this repo, derived from the
+  script's own location (no absolute path baked in). Set this to point at any
+  other layout (CI, packaging).
 - `OUT_DIR` — gn output dir relative to the checkout (default `out/Default`).
 - `NINJA` — ninja binary (auto-detected; falls back to depot_tools).
 

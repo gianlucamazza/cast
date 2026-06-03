@@ -12,7 +12,7 @@
 #
 # Install:
 #   mkdir -p ~/.config/systemd/user
-#   sed "s|@BIN@|$HOME/Workspace/openscreen/out/Default/castbridge|" \
+#   sed "s|@BIN@|$HOME/Workspace/tooling/openscreen-build/openscreen/out/Default/castbridge|" \
 #       install/castbridge.service > ~/.config/systemd/user/castbridge.service
 #   systemctl --user enable --now castbridge.service
 #
