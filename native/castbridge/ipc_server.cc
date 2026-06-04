@@ -85,10 +85,14 @@ bool IpcServer::Run() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       for (auto& [fd, conn] : conns_) {
-        short events = POLLIN;
+        short events = 0;
+        if (!conn.read_closed) {
+          events |= POLLIN;  // stop reading once the peer half-closed (EOF)
+        }
         if (!conn.out.empty()) {
           events |= POLLOUT;
         }
+        // events may be 0 here; poll() still reports POLLHUP/POLLERR on it.
         fds.push_back({fd, events, 0});
       }
     }
@@ -122,91 +126,36 @@ bool IpcServer::Run() {
     for (size_t i = 2; i < fds.size(); ++i) {
       const int fd = fds[i].fd;
       const short re = fds[i].revents;
-      if (re & (POLLHUP | POLLERR)) {
-        CloseConn(fd);
-        continue;
-      }
+
+      // Flush queued responses first, so a reply still goes out even when the
+      // peer is hanging up in this same iteration.
       if (re & POLLOUT) {
-        bool closed = false;
-        for (;;) {
-          std::string frame;
-          {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = conns_.find(fd);
-            if (it == conns_.end() || it->second.out.empty()) {
-              break;
-            }
-            frame = it->second.out.front();
-          }
-          ssize_t w = write(fd, frame.data(), frame.size());
-          if (w < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-              break;
-            }
-            CloseConn(fd);
-            closed = true;
-            break;
-          }
+        if (FlushWrites(fd)) {
+          continue;  // connection closed on a write error
+        }
+      }
+
+      // Readable data and/or hangup. Always drain and dispatch buffered requests
+      // BEFORE any teardown: a request that arrived together with EOF must still
+      // run (and, for a half-closed peer, be answered).
+      if (re & (POLLIN | POLLHUP | POLLERR)) {
+        const bool peer_gone = DrainReadable(fd);
+        DispatchLines(fd);
+        if (re & (POLLHUP | POLLERR)) {
+          // Peer fully gone: a queued reply is undeliverable, but the request
+          // was dispatched above so its side effects still ran.
+          CloseConn(fd);
+          continue;
+        }
+        if (peer_gone) {
+          // Peer half-closed its write side but may still be reading: keep the
+          // connection open so the (possibly async) response is delivered. We
+          // stop polling it for input (read_closed) so EOF does not spin the
+          // loop; its eventual full close surfaces as POLLHUP and closes us.
           std::lock_guard<std::mutex> lock(mutex_);
           auto it = conns_.find(fd);
-          if (it == conns_.end()) {
-            break;
-          }
-          if (static_cast<size_t>(w) < frame.size()) {
-            it->second.out.front().erase(0, w);
-            break;
-          }
-          it->second.out.pop_front();
-        }
-        if (closed) {
-          continue;
-        }
-      }
-      if (re & POLLIN) {
-        char buf[4096];
-        bool closed = false;
-        for (;;) {
-          ssize_t r = read(fd, buf, sizeof(buf));
-          if (r > 0) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = conns_.find(fd);
-            if (it != conns_.end()) {
-              it->second.in.append(buf, r);
-            }
-          } else if (r == 0) {
-            CloseConn(fd);
-            closed = true;
-            break;
-          } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-              break;
-            }
-            CloseConn(fd);
-            closed = true;
-            break;
-          }
-        }
-        if (closed) {
-          continue;
-        }
-        // Extract complete lines and dispatch.
-        for (;;) {
-          std::string line;
-          {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = conns_.find(fd);
-            if (it == conns_.end()) {
-              break;
-            }
-            auto pos = it->second.in.find('\n');
-            if (pos == std::string::npos) {
-              break;
-            }
-            line = it->second.in.substr(0, pos);
-            it->second.in.erase(0, pos + 1);
-          }
-          if (!line.empty() && handler_) {
-            handler_(fd, line);
+          if (it != conns_.end()) {
+            it->second.read_closed = true;
           }
         }
       }
@@ -219,6 +168,81 @@ bool IpcServer::Run() {
   }
   conns_.clear();
   return true;
+}
+
+bool IpcServer::FlushWrites(int fd) {
+  for (;;) {
+    std::string frame;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = conns_.find(fd);
+      if (it == conns_.end() || it->second.out.empty()) {
+        return false;
+      }
+      frame = it->second.out.front();
+    }
+    ssize_t w = write(fd, frame.data(), frame.size());
+    if (w < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return false;  // socket buffer full; retry on the next POLLOUT
+      }
+      CloseConn(fd);
+      return true;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = conns_.find(fd);
+    if (it == conns_.end()) {
+      return true;
+    }
+    if (static_cast<size_t>(w) < frame.size()) {
+      it->second.out.front().erase(0, w);
+      return false;  // partial write; finish on the next POLLOUT
+    }
+    it->second.out.pop_front();
+  }
+}
+
+bool IpcServer::DrainReadable(int fd) {
+  char buf[4096];
+  for (;;) {
+    ssize_t r = read(fd, buf, sizeof(buf));
+    if (r > 0) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = conns_.find(fd);
+      if (it != conns_.end()) {
+        it->second.in.append(buf, r);
+      }
+    } else if (r == 0) {
+      return true;  // peer closed its write side (EOF)
+    } else {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return false;  // no more data for now
+      }
+      return true;  // hard read error: treat the peer as gone
+    }
+  }
+}
+
+void IpcServer::DispatchLines(int fd) {
+  for (;;) {
+    std::string line;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = conns_.find(fd);
+      if (it == conns_.end()) {
+        return;
+      }
+      auto pos = it->second.in.find('\n');
+      if (pos == std::string::npos) {
+        return;
+      }
+      line = it->second.in.substr(0, pos);
+      it->second.in.erase(0, pos + 1);
+    }
+    if (!line.empty() && handler_) {
+      handler_(fd, line);
+    }
+  }
 }
 
 void IpcServer::QueueLocked(int fd, const std::string& json) {

@@ -43,12 +43,21 @@ class IpcServer {
   struct Conn {
     std::string in;             // accumulated inbound bytes (split on '\n')
     std::deque<std::string> out;  // pending outbound frames (newline-terminated)
+    // The peer half-closed its write side (shutdown(SHUT_WR)) but may still be
+    // reading: keep the connection open to deliver the response, but stop
+    // polling it for input. Set after an EOF on read.
+    bool read_closed = false;
   };
 
   void Wake();
   void DrainWake();
   void CloseConn(int fd);
   void QueueLocked(int fd, const std::string& json);
+
+  // Per-connection I/O steps used by the Run() loop, all on the server thread.
+  bool FlushWrites(int fd);    // drain the out-queue; true if closed on error
+  bool DrainReadable(int fd);  // read into Conn::in; true on peer EOF/error
+  void DispatchLines(int fd);  // dispatch complete '\n'-terminated requests
 
   const std::string socket_path_;
   RequestHandler handler_;

@@ -52,4 +52,25 @@ if (!build_with_chromium) {
       "../sender:channel",
     ]
   }
+
+  # Self-contained test binary for the dependency-free pieces (currently the
+  # AF_UNIX IPC server). Kept separate from openscreen_unittests so the tracked
+  # openscreen build never has to reference this fork-local (git-ignored) dir.
+  # Build & run: ninja -C out/Default cast/castbridge:castbridge_unittests &&
+  #   out/Default/castbridge_unittests
+  openscreen_executable("castbridge_unittests") {
+    testonly = true
+    visibility = [ "../..:gn_all" ]
+
+    sources = [
+      "ipc_server.cc",
+      "ipc_server.h",
+      "ipc_server_unittest.cc",
+    ]
+
+    deps = [
+      "../../third_party/googletest:gtest",
+      "../../third_party/googletest:gtest_main",
+    ]
+  }
 }
