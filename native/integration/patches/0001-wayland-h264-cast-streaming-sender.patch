@@ -1,6 +1,6 @@
-From d26be86366963c6bafedf253b2ee9b8a3aab154c Mon Sep 17 00:00:00 2001
+From a7f850dae7833e607b818b72957da5d8682b51f5 Mon Sep 17 00:00:00 2001
 From: Gianluca <info@gianlucamazza.it>
-Date: Thu, 4 Jun 2026 15:36:10 +0200
+Date: Thu, 4 Jun 2026 18:01:37 +0200
 Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  sender
 
@@ -10,7 +10,7 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  cast/standalone_sender/BUILD.gn               |  27 +
  cast/standalone_sender/audio_capturer.cc      | 417 ++++++++
  cast/standalone_sender/audio_capturer.h       | 129 +++
- cast/standalone_sender/connection_settings.h  |   9 +
+ cast/standalone_sender/connection_settings.h  |  15 +
  .../ext-foreign-toplevel-list-v1-client.h     | 442 ++++++++
  .../ext-foreign-toplevel-list-v1.c            |  86 ++
  .../ext-image-capture-source-v1-client.h      | 310 ++++++
@@ -23,11 +23,11 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  .../hyprland-toplevel-mapping-v1-client.h     | 259 +++++
  .../hyprland-toplevel-mapping-v1.c            |  83 ++
  .../hyprland-toplevel-mapping-v1.xml          | 107 ++
- .../looping_file_cast_agent.cc                |  58 +-
- .../looping_file_cast_agent.h                 |   5 +
+ .../looping_file_cast_agent.cc                | 121 ++-
+ .../looping_file_cast_agent.h                 |   7 +
  cast/standalone_sender/looping_file_sender.cc | 140 ++-
  cast/standalone_sender/looping_file_sender.h  |  21 +
- cast/standalone_sender/main.cc                |  53 +-
+ cast/standalone_sender/main.cc                |  63 +-
  cast/standalone_sender/screen_capturer.cc     | 599 +++++++++++
  cast/standalone_sender/screen_capturer.h      | 171 +++
  .../standalone_sender/screen_mirror_sender.cc | 446 ++++++++
@@ -36,7 +36,7 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  docs/adr/0001-native-castbridge-backend.md    | 159 +++
  platform/BUILD.gn                             |   1 +
  .../socket_handle_waiter_posix_unittest.cc    |   3 +-
- 31 files changed, 5245 insertions(+), 19 deletions(-)
+ 31 files changed, 5326 insertions(+), 19 deletions(-)
  create mode 100644 cast/standalone_sender/audio_capturer.cc
  create mode 100644 cast/standalone_sender/audio_capturer.h
  create mode 100644 cast/standalone_sender/ext-foreign-toplevel-list-v1-client.h
@@ -693,10 +693,23 @@ index 00000000..cf8b70e4
 +
 +#endif  // CAST_STANDALONE_SENDER_AUDIO_CAPTURER_H_
 diff --git a/cast/standalone_sender/connection_settings.h b/cast/standalone_sender/connection_settings.h
-index a4078ce3..14626845 100644
+index a4078ce3..448c5cf8 100644
 --- a/cast/standalone_sender/connection_settings.h
 +++ b/cast/standalone_sender/connection_settings.h
-@@ -49,6 +49,15 @@ struct ConnectionSettings {
+@@ -38,6 +38,12 @@ struct ConnectionSettings {
+   // mirroring.
+   bool use_remoting = false;
+ 
++  // Diagnostic mode: after the mirroring app session is established, send a
++  // GET_CAPABILITIES request, log the receiver's RemotingCapabilities, and exit
++  // without negotiating a stream. Used to probe what a given receiver advertises
++  // for remoting (codecs, 4k) before building the remoting content path.
++  bool probe_caps = false;
++
+   // Whether we should loop the video when it is completed.
+   bool should_loop_video = true;
+ 
+@@ -49,6 +55,15 @@ struct ConnectionSettings {
  
    // Whether input event API should be enabled for this session.
    bool enable_input_events = false;
@@ -3675,7 +3688,7 @@ index 00000000..d197f8af
 +</protocol>
 \ No newline at end of file
 diff --git a/cast/standalone_sender/looping_file_cast_agent.cc b/cast/standalone_sender/looping_file_cast_agent.cc
-index f77a8c49..fa965219 100644
+index f77a8c49..42b6bd8f 100644
 --- a/cast/standalone_sender/looping_file_cast_agent.cc
 +++ b/cast/standalone_sender/looping_file_cast_agent.cc
 @@ -4,6 +4,9 @@
@@ -3688,7 +3701,15 @@ index f77a8c49..fa965219 100644
  #include <optional>
  #include <string>
  #include <utility>
-@@ -27,6 +30,31 @@ namespace {
+@@ -16,6 +19,7 @@
+ #include "cast/streaming/public/capture_recommendations.h"
+ #include "cast/streaming/public/constants.h"
+ #include "cast/streaming/public/offer_messages.h"
++#include "cast/streaming/remoting_capabilities.h"
+ #include "json/value.h"
+ #include "platform/api/tls_connection_factory.h"
+ #include "util/json/json_helpers.h"
+@@ -27,6 +31,31 @@ namespace {
  
  using DeviceMediaPolicy = SenderSocketFactory::DeviceMediaPolicy;
  
@@ -3720,7 +3741,28 @@ index f77a8c49..fa965219 100644
  }  // namespace
  
  LoopingFileCastAgent::LoopingFileCastAgent(
-@@ -316,6 +344,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+@@ -305,6 +334,20 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+   }
+   OSP_CHECK(!message_port_.source_id().empty());
+ 
++  // Capability-probe mode: ask the receiver what it supports for remoting and
++  // exit (no stream negotiated). OnCapabilitiesDetermined() logs the result; if
++  // the receiver does not support remoting, OnError(kRemotingNotSupported) fires.
++  if (connection_settings_->probe_caps) {
++    OSP_LOG_INFO << "Probing receiver remoting capabilities "
++                    "(GET_CAPABILITIES)...";
++    const Error error = current_session_->RequestCapabilities();
++    if (!error.ok()) {
++      OSP_LOG_ERROR << "Failed to request capabilities: " << error;
++      Shutdown();
++    }
++    return;
++  }
++
+   AudioCaptureConfig audio_config;
+   // Opus does best at 192kbps, so we cap that here.
+   audio_config.bit_rate = 192 * 1000;
+@@ -316,6 +359,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
    // Use default display resolution of 1080P.
    video_config.resolutions.emplace_back(Resolution{1920, 1080});
  
@@ -3739,7 +3781,7 @@ index f77a8c49..fa965219 100644
    OSP_VLOG << "Starting session negotiation.";
    Error negotiation_error;
    if (connection_settings_->use_remoting) {
-@@ -333,6 +373,7 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+@@ -333,6 +388,7 @@ void LoopingFileCastAgent::CreateAndStartSession() {
    }
    if (!negotiation_error.ok()) {
      OSP_LOG_ERROR << "Failed to negotiate a session: " << negotiation_error;
@@ -3747,7 +3789,7 @@ index f77a8c49..fa965219 100644
    }
  }
  
-@@ -342,6 +383,7 @@ void LoopingFileCastAgent::OnNegotiated(
+@@ -342,6 +398,7 @@ void LoopingFileCastAgent::OnNegotiated(
      capture_recommendations::Recommendations capture_recommendations) {
    if (senders.audio_sender == nullptr || senders.video_sender == nullptr) {
      OSP_LOG_ERROR << "Missing both audio and video, so exiting...";
@@ -3755,7 +3797,58 @@ index f77a8c49..fa965219 100644
      return;
    }
  
-@@ -355,6 +397,7 @@ void LoopingFileCastAgent::OnNegotiated(
+@@ -352,9 +409,58 @@ void LoopingFileCastAgent::OnNegotiated(
+   }
+ }
+ 
++void LoopingFileCastAgent::OnCapabilitiesDetermined(
++    const SenderSession* session,
++    RemotingCapabilities capabilities) {
++  auto audio_name = [](AudioCapability c) -> const char* {
++    switch (c) {
++      case AudioCapability::kBaselineSet:
++        return "baseline-set";
++      case AudioCapability::kAac:
++        return "aac";
++      case AudioCapability::kOpus:
++        return "opus";
++    }
++    return "unknown";
++  };
++  auto video_name = [](VideoCapability c) -> const char* {
++    switch (c) {
++      case VideoCapability::kSupports4k:
++        return "4k";
++      case VideoCapability::kH264:
++        return "h264";
++      case VideoCapability::kVp8:
++        return "vp8";
++      case VideoCapability::kVp9:
++        return "vp9";
++      case VideoCapability::kHevc:
++        return "hevc";
++      case VideoCapability::kAv1:
++        return "av1";
++    }
++    return "unknown";
++  };
++
++  std::string audio;
++  for (const AudioCapability c : capabilities.audio) {
++    audio += audio_name(c);
++    audio += ' ';
++  }
++  std::string video;
++  for (const VideoCapability c : capabilities.video) {
++    video += video_name(c);
++    video += ' ';
++  }
++  OSP_LOG_INFO << "Receiver remoting capabilities: audio=[ " << audio
++               << "] video=[ " << video << "]";
++  // Probe complete; tear down and exit.
++  Shutdown();
++}
++
  void LoopingFileCastAgent::OnError(const SenderSession* session,
                                     const Error& error) {
    OSP_LOG_ERROR << "SenderSession fatal error: " << error;
@@ -3763,7 +3856,7 @@ index f77a8c49..fa965219 100644
    Shutdown();
  }
  
-@@ -416,17 +459,26 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
+@@ -416,17 +522,26 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
  
  void LoopingFileCastAgent::StartFileSender() {
    OSP_CHECK(current_negotiation_);
@@ -3794,7 +3887,7 @@ index f77a8c49..fa965219 100644
      OSP_LOG_INFO << "Stopping mirroring session...";
      current_session_.reset();
 diff --git a/cast/standalone_sender/looping_file_cast_agent.h b/cast/standalone_sender/looping_file_cast_agent.h
-index d391bf47..58a9ed1e 100644
+index d391bf47..22f4b2e6 100644
 --- a/cast/standalone_sender/looping_file_cast_agent.h
 +++ b/cast/standalone_sender/looping_file_cast_agent.h
 @@ -21,6 +21,7 @@
@@ -3805,7 +3898,16 @@ index d391bf47..58a9ed1e 100644
  #include "cast/streaming/public/environment.h"
  #include "cast/streaming/public/sender_session.h"
  #include "platform/base/error.h"
-@@ -189,6 +190,10 @@ class LoopingFileCastAgent final
+@@ -138,6 +139,8 @@ class LoopingFileCastAgent final
+                     SenderSession::ConfiguredSenders senders,
+                     capture_recommendations::Recommendations
+                         capture_recommendations) override;
++  void OnCapabilitiesDetermined(const SenderSession* session,
++                                RemotingCapabilities capabilities) override;
+   void OnError(const SenderSession* session, const Error& error) override;
+ 
+   // Input message handler.
+@@ -189,6 +192,10 @@ class LoopingFileCastAgent final
    std::unique_ptr<SenderSession> current_session_;
    std::unique_ptr<LoopingFileSender> file_sender_;
  
@@ -4069,7 +4171,7 @@ index 91041604..b02e423c 100644
    Clock::time_point capture_begin_time_{};
    Clock::time_point latest_frame_time_{};
 diff --git a/cast/standalone_sender/main.cc b/cast/standalone_sender/main.cc
-index d1716dc6..d67a41a4 100644
+index d1716dc6..3a26e695 100644
 --- a/cast/standalone_sender/main.cc
 +++ b/cast/standalone_sender/main.cc
 @@ -42,11 +42,11 @@ namespace {
@@ -4121,7 +4223,18 @@ index d1716dc6..d67a41a4 100644
  
      -d, --developer-certificate=path-to-cert
            Specifies the path to a self-signed developer certificate that will
-@@ -121,8 +141,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
+@@ -86,6 +106,10 @@ options:
+ 
+     -r, --remoting: Enable remoting content instead of mirroring.
+ 
++    -C, --probe-caps: Connect, ask the receiver for its remoting capabilities
++                      (GET_CAPABILITIES), log them, and exit without streaming.
++                      A file path argument is still required (unused).
++
+     -t, --tracing: Enable text based performance trace logging.
+ 
+     -v, --verbose: Enable verbose logging.
+@@ -121,8 +145,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
  
  std::optional<VideoCodec> ParseCodec(std::string_view arg) {
    // We can only support codecs that have a corresponding encoder library.
@@ -4135,8 +4248,11 @@ index d1716dc6..d67a41a4 100644
  
    const auto parsed = StringToVideoCodec(arg);
    if (!parsed || std::ranges::find(kSupportedCodecs, parsed.value()) ==
-@@ -147,6 +170,8 @@ struct Arguments {
+@@ -145,8 +172,11 @@ struct Arguments {
+   std::string developer_certificate_path;
+   bool use_android_rtp_hack = false;
    bool use_remoting = false;
++  bool probe_caps = false;
    bool enable_input_events = false;
    bool is_verbose = false;
 +  int audio_target_pid = 0;
@@ -4144,7 +4260,7 @@ index d1716dc6..d67a41a4 100644
    VideoCodec codec = VideoCodec::kVp8;
    std::unique_ptr<TraceLoggingPlatform> trace_logger;
    bool enable_dscp = true;
-@@ -163,6 +188,8 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+@@ -163,10 +193,13 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
        {"developer-certificate", required_argument, nullptr, 'd'},
        {"enable-input-events", no_argument, nullptr, 'i'},
        {"help", no_argument, nullptr, 'h'},
@@ -4153,12 +4269,17 @@ index d1716dc6..d67a41a4 100644
        {"max-bitrate", required_argument, nullptr, 'm'},
        {"no-looping", no_argument, nullptr, 'n'},
        {"disable-dscp", no_argument, nullptr, 'q'},
-@@ -176,12 +203,22 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+       {"remoting", no_argument, nullptr, 'r'},
++      {"probe-caps", no_argument, nullptr, 'C'},
+       {"tracing", no_argument, nullptr, 't'},
+ #if defined(USE_PERFETTO)
+       {"perfetto", no_argument, nullptr, 'P'},
+@@ -176,12 +209,22 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
  
    Arguments args;
    int ch = -1;
 -  while ((ch = getopt_long(argc, argv, "ac:d:him:nqrtvP", kArgumentOptions,
-+  while ((ch = getopt_long(argc, argv, "aA:c:d:him:nN:qrtvP", kArgumentOptions,
++  while ((ch = getopt_long(argc, argv, "aA:Cc:d:him:nN:qrtvP", kArgumentOptions,
                             nullptr)) != -1) {
      switch (ch) {
        case 'a':
@@ -4177,7 +4298,21 @@ index d1716dc6..d67a41a4 100644
        case 'm':
          if (!string_parse::ParseAsciiNumber(get_opt::optarg,
                                              args.max_bitrate) ||
-@@ -304,7 +341,9 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+@@ -207,6 +250,9 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+       case 'r':
+         args.use_remoting = true;
+         break;
++      case 'C':
++        args.probe_caps = true;
++        break;
+       case 't':
+         args.trace_logger = std::make_unique<TextTraceLoggingPlatform>();
+         break;
+@@ -301,10 +347,13 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+                          .should_include_video = true,
+                          .use_android_rtp_hack = args->use_android_rtp_hack,
+                          .use_remoting = args->use_remoting,
++                         .probe_caps = args->probe_caps,
                           .should_loop_video = args->should_loop_video,
                           .codec = args->codec,
                           .enable_dscp = args->enable_dscp,
