@@ -27,6 +27,7 @@ struct Device {
   std::string model;  // model name
   std::string ip;     // IPv4 (preferred) or IPv6 literal
   uint16_t port = 0;
+  bool busy = false;  // receiver is hosting an activity (mDNS 'st' == 1)
 };
 
 class DeviceLister final : public openscreen::discovery::ReportingClient {

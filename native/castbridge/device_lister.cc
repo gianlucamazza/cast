@@ -78,6 +78,9 @@ void DeviceLister::OnUpdate(
     d.ip = info.v4_address ? AddressToString(info.v4_address)
                            : AddressToString(info.v6_address);
     d.port = info.port;
+    // 'st' == kBusy: the receiver is already hosting an activity (a session,
+    // possibly from another sender). Surfaced so the UI can flag it.
+    d.busy = info.status == openscreen::cast::ReceiverStatus::kBusy;
     next.push_back(std::move(d));
   }
   std::sort(next.begin(), next.end(),
