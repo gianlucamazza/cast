@@ -113,6 +113,7 @@ Json::Value BuildSessionData(MirrorController& mirror,
   const MirrorController::Status ms = mirror.GetStatus();
   const MediaStatus md = media.Snapshot();
   const bool yt_active = yt.active();
+  const YouTubeStatus yd = yt.Snapshot();
 
   Json::Value data(Json::objectValue);
   Json::Value mirror_json = Json::Value::null;
@@ -135,8 +136,12 @@ Json::Value BuildSessionData(MirrorController& mirror,
   data["media"] = MediaData(md);
   if (yt_active) {
     Json::Value y(Json::objectValue);
-    y["state"] = "PLAYING";
+    // Real state once the event channel has reported; "PLAYING" is the optimistic
+    // default the controller seeds at load, before the first poll frame arrives.
+    y["state"] = yd.state.empty() ? "PLAYING" : yd.state;
     y["title"] = yt.title();
+    y["position"] = yd.position;
+    y["duration"] = yd.duration;
     data["youtube"] = y;
   }
   return data;
@@ -448,6 +453,12 @@ int RunDaemon() {
   mirror.set_on_change(broadcast_session);
   media.set_on_change(broadcast_session);
   yt.set_on_change(broadcast_session);
+  // A YouTube playback state change (PLAYING <-> PAUSED, natural end) re-pushes
+  // the same `session` event, which now carries the real state from the Lounge
+  // event channel instead of the old hardcoded "PLAYING".
+  yt.set_on_status([broadcast_session](const YouTubeStatus&) {
+    broadcast_session();
+  });
 
   // Push a devices-changed event whenever discovery updates (task thread).
   lister.set_on_change([&server, &lister] {
