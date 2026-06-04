@@ -112,8 +112,10 @@ bool RawLogEnabled() {
 // Map the numeric Lounge playerState to the URL-receiver vocabulary so the
 // extension treats YouTube and the default receiver identically.
 //   -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+// 1081 was observed on a real TV during ad playback (content is playing) — treat
+// it as PLAYING so the UI doesn't get stuck on BUFFERING through the pre-roll.
 std::string MapState(const std::string& code) {
-  if (code == "1") return "PLAYING";
+  if (code == "1" || code == "1081") return "PLAYING";
   if (code == "2") return "PAUSED";
   if (code == "3") return "BUFFERING";
   if (code == "0") return "IDLE";
@@ -302,15 +304,10 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
     if (error) *error = "lounge session expired (HTTP " + std::to_string(code) + ")";
     return PollResult::kNeedRefresh;
   }
-  // curl exit 28 = operation timed out: a long-poll that held open with no new
-  // events. That is the normal idle case, not an error — just poll again.
-  if (curl_exit == 28 && (code == 0 || (code >= 200 && code < 300))) {
-    return PollResult::kNoChange;
-  }
-  if (code < 200 || code >= 300) {
-    if (error) *error = err.empty() ? ("poll HTTP " + std::to_string(code)) : err;
-    return PollResult::kError;
-  }
+  // Parse the body BEFORE inspecting the exit code: the Lounge long-poll
+  // normally holds the connection open and streams a batch of events, then curl
+  // hits --max-time (exit 28) — so the events arrive precisely on a "timeout".
+  // Treating exit 28 as no-data here would discard the whole event batch.
 
   bool got = false;
   YouTubeStatus st;
@@ -360,11 +357,11 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
       const std::string mapped = MapState(str(p["state"]));
       if (!mapped.empty()) {
         st.state = mapped;
+        got = true;  // only a real, mapped state counts as a usable update
       }
       if (p.isMember("currentTime")) st.position = num(p["currentTime"]);
       if (p.isMember("duration")) st.duration = num(p["duration"]);
       if (p.isMember("videoId")) st.video_id = str(p["videoId"]);
-      got = true;
     }
   }
 
@@ -374,6 +371,15 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
   if (got && out) {
     *out = st;
     return PollResult::kStatus;
+  }
+  // No usable playback event. A timeout (exit 28) is the normal idle long-poll;
+  // a non-2xx with no body is a real error worth backing off on.
+  if (curl_exit == 28) {
+    return PollResult::kNoChange;
+  }
+  if (code < 200 || code >= 300) {
+    if (error) *error = err.empty() ? ("poll HTTP " + std::to_string(code)) : err;
+    return PollResult::kError;
   }
   return PollResult::kNoChange;
 }

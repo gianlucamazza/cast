@@ -142,6 +142,7 @@ Json::Value BuildSessionData(MirrorController& mirror,
     y["title"] = yt.title();
     y["position"] = yd.position;
     y["duration"] = yd.duration;
+    y["videoId"] = yd.video_id;  // lets the content script pause the matching tab
     data["youtube"] = y;
   }
   return data;
