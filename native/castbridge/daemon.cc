@@ -1,5 +1,6 @@
 #include "cast/castbridge/daemon.h"
 
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <csignal>
@@ -29,11 +30,16 @@ namespace castbridge {
 
 namespace {
 
-IpcServer* g_server = nullptr;
+// Set while the IPC server is running; cleared before teardown so a signal that
+// arrives during shutdown does not touch the destroyed stack object. Atomic
+// because the handler may run on any thread; Stop() is async-signal-safe (it
+// only sets an atomic flag and writes the wake eventfd).
+std::atomic<IpcServer*> g_server{nullptr};
 
 void HandleSignal(int /*sig*/) {
-  if (g_server) {
-    g_server->Stop();
+  IpcServer* const server = g_server.load(std::memory_order_acquire);
+  if (server) {
+    server->Stop();
   }
 }
 
@@ -458,7 +464,7 @@ int RunDaemon() {
         HandleRequest(server, lister, mirror, media, yt, conn, line);
       });
 
-  g_server = &server;
+  g_server.store(&server, std::memory_order_release);
   std::signal(SIGINT, HandleSignal);
   std::signal(SIGTERM, HandleSignal);
 
@@ -474,6 +480,11 @@ int RunDaemon() {
   });
 
   ok = server.Run();  // blocks until Stop() (signal)
+
+  // A signal arriving from here on must not touch the soon-to-be-destroyed
+  // stack objects (server, controllers): drop the global so HandleSignal is a
+  // no-op during teardown.
+  g_server.store(nullptr, std::memory_order_release);
 
   // Tear down sessions while the TaskRunner is still alive. The cast clients
   // (TLS connections) MUST be destroyed on the TaskRunner thread, so do it via a
