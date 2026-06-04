@@ -8,6 +8,12 @@ import("../../gni/openscreen.gni")
 # standalone application that links openscreen discovery + platform).
 if (!build_with_chromium) {
   openscreen_executable("castbridge") {
+    # testonly mirrors the repo convention for standalone executables
+    # (cast_sender, cast_receiver, osp_demo are all testonly): they are tools of
+    # the standalone build, not shipped library/production artifacts. castbridge
+    # is only ever a leaf of the testonly `gn_all`, and no non-test target links
+    # it. Keep it testonly; removing it would diverge from the convention with no
+    # benefit.
     testonly = true
     visibility = [ "../..:gn_all" ]
 
