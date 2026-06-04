@@ -99,8 +99,8 @@ else
 		echo "==> openscreen tree has tracked modifications; resetting"
 		git -C "$OPENSCREEN_DIR" checkout -- .
 	fi
-	if [[ "$(git -C "$OPENSCREEN_DIR" rev-parse HEAD)" == "$PATCHED" ]]; then
-		echo "==> patch already applied (HEAD == $PATCHED); skipping checkout/am"
+	if [[ "$(git -C "$OPENSCREEN_DIR" rev-parse 'HEAD^{tree}')" == "$PATCHED" ]]; then
+		echo "==> patch already applied (tree == $PATCHED); skipping checkout/am"
 	else
 		git -C "$OPENSCREEN_DIR" fetch --tags origin "$PIN" || git -C "$OPENSCREEN_DIR" fetch origin
 		git -C "$OPENSCREEN_DIR" checkout --detach "$PIN"
@@ -110,6 +110,21 @@ else
 			echo "patch failed to apply on $PIN — the pin or patch is stale" >&2
 			exit 1
 		}
+	fi
+fi
+
+# 3b) Invariant: whichever strategy ran, the resulting tree must equal the pin's
+# patched= hash. Catches a fork branch advanced without re-cutting the patch, or
+# a stale patch. patched= is a TREE object (deterministic) — not a commit, whose
+# hash varies with the `git am` committer date. Regenerate both with
+# regen-patch.sh whenever the sender changes.
+if [[ -n "$PATCHED" ]]; then
+	GOT_TREE="$(git -C "$OPENSCREEN_DIR" rev-parse 'HEAD^{tree}')"
+	if [[ "$GOT_TREE" != "$PATCHED" ]]; then
+		echo "checkout tree $GOT_TREE != pin patched=$PATCHED" >&2
+		echo "the fork branch and the pin/patch are out of sync" >&2
+		echo "regenerate them: bash native/integration/regen-patch.sh" >&2
+		exit 1
 	fi
 fi
 
