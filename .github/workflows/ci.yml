@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install --no-save web-ext@^8.3.0
+      - name: i18n parity
+        run: node scripts/check-locales.mjs
       - name: web-ext lint
         run: npx web-ext lint -c web-ext-config.mjs
       - name: web-ext build
