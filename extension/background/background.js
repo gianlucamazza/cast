@@ -266,12 +266,12 @@ function buildMenus() {
   browser.contextMenus.removeAll().then(() => {
     browser.contextMenus.create({
       id: "cast-media",
-      title: "Cast this video/audio to TV",
+      title: browser.i18n.getMessage("ctxCastMedia"),
       contexts: ["video", "audio"],
     });
     browser.contextMenus.create({
       id: "mirror-window",
-      title: "Mirror this window to TV",
+      title: browser.i18n.getMessage("ctxMirrorWindow"),
       contexts: ["page"],
     });
   });
@@ -301,32 +301,32 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
       if (info.srcUrl && /^https?:/.test(info.srcUrl)) url = info.srcUrl;
       else if (best && best.castUrl) url = best.castUrl;
       if (!url) {
-        notify("Can't cast this", "Protected/streamed media — try mirroring the window.");
+        notify(browser.i18n.getMessage("notifCantCastTitle"), browser.i18n.getMessage("notifCantCastMsg"));
         return;
       }
       const r = await call("media-load", { deviceId, url, title });
-      reportError(r, "Cast failed");
+      reportError(r, "notifCastFailedTitle");
     } else if (info.menuItemId === "mirror-window") {
       const r = await call("mirror-window", { deviceId, selector: "librewolf" });
-      reportError(r, "Mirror failed");
+      reportError(r, "notifMirrorFailedTitle");
     }
   } catch (e) {
-    notify("Cast error", String((e && e.message) || e));
+    notify(browser.i18n.getMessage("notifCastErrorTitle"), String((e && e.message) || e));
   }
 });
 
-function reportError(reply, title) {
+// Code → notification title; the body comes from the shared error map.
+const NOTIF_TITLE = {
+  ambiguous: "notifPickTvTitle",
+  no_devices: "notifNoTvTitle",
+  nohost: "notifHostMissingTitle",
+};
+
+function reportError(reply, fallbackTitleKey) {
   if (reply.ok) return;
   const err = reply.error || {};
-  if (err.code === "ambiguous") {
-    notify("Pick a TV", "Several Chromecasts found — open the Cast popup to choose one.");
-  } else if (err.code === "no_devices") {
-    notify("No TV found", "No Chromecast on this network.");
-  } else if (err.code === "nohost") {
-    notify("Cast host missing", "The native castbridge host isn't installed.");
-  } else {
-    notify(title, err.message || "unknown error");
-  }
+  const titleKey = NOTIF_TITLE[err.code] || fallbackTitleKey;
+  notify(browser.i18n.getMessage(titleKey), CastErrors.errorMessage(err.code, err.message));
 }
 
 // --- tab tracking ----------------------------------------------------------
