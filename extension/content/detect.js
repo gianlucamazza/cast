@@ -145,4 +145,9 @@
   mo.observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("play", scheduleReport, true);
   document.addEventListener("loadedmetadata", scheduleReport, true);
+  // YouTube navigates client-side (related video, shorts↔watch) without a reload;
+  // its own SPA events are the reliable signal to re-classify, instead of relying
+  // on a DOM mutation happening to fire. The lastJson dedup drops no-op reports.
+  window.addEventListener("yt-navigate-finish", scheduleReport, true);
+  window.addEventListener("yt-page-data-updated", scheduleReport, true);
 })();

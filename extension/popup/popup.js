@@ -5,6 +5,13 @@ const msg = (k) => browser.i18n.getMessage(k) || k;
 
 let devices = [];
 let devicesScanned = false;
+let offline = false; // daemon unreachable (nohost/disconnected)
+
+// True when a reply indicates the daemon isn't reachable (not installed or down).
+function daemonDown(reply) {
+  return !!reply && !reply.ok && reply.error &&
+    (reply.error.code === "nohost" || reply.error.code === "disconnected");
+}
 let selectedId = "";
 let activeTab = null;
 let castability = null;
@@ -75,9 +82,12 @@ async function init() {
   loadDevices();
   host("status").then((r) => {
     if (r && r.ok) {
+      offline = false;
       session = r.data;
-      render();
+    } else if (daemonDown(r)) {
+      offline = true;
     }
+    render();
   });
 
   ensureSelection();
@@ -91,11 +101,15 @@ function loadDevices() {
   renderDevices();
   return host("devices").then((r) => {
     if (r && r.ok) {
+      offline = false;
       devices = r.data.candidates || [];
       ensureSelection();
+    } else if (daemonDown(r)) {
+      offline = true;
     }
     devicesScanned = true;
     renderDevices();
+    render();
   });
 }
 
@@ -163,6 +177,10 @@ function renderDevices() {
     ul.appendChild(li);
   }
   const empty = devices.length === 0;
+  // When the daemon is unreachable, say so explicitly instead of the generic
+  // "no TV found" — it's actionable (install/start the host).
+  $("devices-empty").textContent =
+    offline ? CastErrors.errorMessage("nohost") : msg("noDevicesFound");
   $("devices-scanning").classList.toggle("hidden", devicesScanned);
   $("devices-empty").classList.toggle("hidden", !(devicesScanned && empty));
   ul.classList.toggle("hidden", empty);
@@ -207,6 +225,12 @@ function renderYouTube(y) {
 function renderIdle() {
   const c = castability;
   const btn = $("cast-video");
+  if (offline) {
+    btn.disabled = true;
+    btn.textContent = msg("castVideo");
+    $("hint").textContent = CastErrors.errorMessage("nohost");
+    return;
+  }
   if (c && c.best && !c.drm) {
     btn.disabled = false;
     btn.textContent = c.best.kind === "site" ? msg("castPageVideo") : msg("castVideo");

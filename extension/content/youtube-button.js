@@ -306,7 +306,13 @@
 
   function paintProgress() {
     const ov = document.getElementById(OV_ID);
-    if (!ov || ov.style.display === "none") return;
+    if (!ov) {
+      // Overlay gone (e.g. the player was re-rendered out from under us): stop
+      // the orphaned ticker instead of firing every second forever.
+      if (ovTicker) { clearInterval(ovTicker); ovTicker = null; }
+      return;
+    }
+    if (ov.style.display === "none") return;
     let p = posBase;
     if (ytPlaying && !seekDragging) p = posBase + (Date.now() - posBaseAt) / 1000;
     if (durTotal > 0) p = Math.min(p, durTotal);
@@ -346,10 +352,16 @@
     seek.addEventListener("input", () => { pos.textContent = fmt(Number(seek.value)); });
     seek.addEventListener("change", () => {
       const v = Number(seek.value);
-      seekDragging = false;
       posBase = v;
       posBaseAt = Date.now();
-      ctl("seek", v);
+      // Keep the slider locked until the daemon acks the seek, so an in-flight
+      // `session` push can't snap it back to the pre-seek position. Unlock on a
+      // timeout too, in case the reply never arrives.
+      const unlock = () => { seekDragging = false; };
+      let done = false;
+      const once = () => { if (!done) { done = true; unlock(); } };
+      ctl("seek", v).then(once);
+      setTimeout(once, 1500);
     });
 
     const mute = el("button", { class: "oc-ov-btn oc-ov-mute", "aria-label": msg("mute") }, svgIcon(ICON_VOL));
