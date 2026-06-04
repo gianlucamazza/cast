@@ -13,7 +13,8 @@
 #   bash setup-openscreen.sh                 # fork strategy, default location
 #   OPENSCREEN_DIR=~/src/openscreen bash setup-openscreen.sh --from-upstream
 #
-# Layout it creates (siblings under the workspace dir):
+# Layout it creates (siblings under the workspace dir; by default the workspace
+# is ../openscreen-build, a sibling of this repo):
 #   <workspace>/depot_tools        depot_tools (gn/ninja/gclient)
 #   <workspace>/.gclient           gclient solution for openscreen
 #   <workspace>/openscreen         the checkout (== $OPENSCREEN_DIR)
@@ -43,7 +44,10 @@ PATCH="$HERE/$PATCH_REL"
 	exit 1
 }
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
+# Default to the fork checkout sibling of this repo (../openscreen-build/openscreen);
+# override with $OPENSCREEN_DIR for any other layout (CI, packaging).
+REPO_DIR="$(cd "$HERE/../.." && pwd)"
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$(dirname "$REPO_DIR")/openscreen-build/openscreen}"
 OUT_DIR="${OUT_DIR:-out/Default}"
 WORKSPACE="$(dirname "$OPENSCREEN_DIR")"
 DEPOT_TOOLS="${DEPOT_TOOLS:-$WORKSPACE/depot_tools}"

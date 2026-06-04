@@ -12,9 +12,10 @@
 # git-ignored, so nothing absolute gets committed.
 set -euo pipefail
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
-OUT_DIR="${OUT_DIR:-out/Default}"
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
+# Default to the fork checkout sibling of this repo; override via $OPENSCREEN_DIR.
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$(dirname "$REPO_DIR")/openscreen-build/openscreen}"
+OUT_DIR="${OUT_DIR:-out/Default}"
 CLANGD="$REPO_DIR/native/castbridge/.clangd"
 
 [[ -d "$OPENSCREEN_DIR" ]] || {
