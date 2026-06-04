@@ -20,9 +20,9 @@ jobs:
           node-version: 20
       - run: npm install --no-save web-ext@^8.3.0
       - name: web-ext lint
-        run: npx web-ext lint -c web-ext-config.cjs
+        run: npx web-ext lint -c web-ext-config.mjs
       - name: web-ext build
-        run: npx web-ext build -c web-ext-config.cjs
+        run: npx web-ext build -c web-ext-config.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: extension-xpi

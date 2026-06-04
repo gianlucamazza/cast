@@ -92,8 +92,8 @@ direct stream URL is exposed.
 ## Dev
 
 ```bash
-npx web-ext lint -c web-ext-config.cjs
-npx web-ext run  -c web-ext-config.cjs   # launches LibreWolf with the extension
+npx web-ext lint -c web-ext-config.mjs
+npx web-ext run  -c web-ext-config.mjs   # launches LibreWolf with the extension
 ```
 
 CI (`.github/workflows/ci.yml`) lints/builds the extension and shellchecks the

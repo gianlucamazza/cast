@@ -22,7 +22,7 @@ One C++ binary, two roles selected by flag (`castbridge_main.cc`): `--nm-host`
 
 Extension (Node/web-ext):
 ```bash
-npm run lint            # web-ext lint -c web-ext-config.cjs
+npm run lint            # web-ext lint -c web-ext-config.mjs
 npm run start           # launches LibreWolf with the extension loaded
 npm run build           # -> .web-ext-artifacts/*.zip
 npm run sign:unlisted   # needs AMO_JWT_ISSUER / AMO_JWT_SECRET
