@@ -169,5 +169,17 @@
   },
   "ytThisTv": {
     "message": "the TV"
+  },
+  "deviceBusy": {
+    "message": "in use"
+  },
+  "deviceBusyYou": {
+    "message": "playing"
+  },
+  "confirmTakeover": {
+    "message": "Already in use — click again to take over"
+  },
+  "replace": {
+    "message": "Take over"
   }
 }

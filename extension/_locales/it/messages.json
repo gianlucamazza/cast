@@ -169,5 +169,17 @@
   },
   "ytThisTv": {
     "message": "la TV"
+  },
+  "deviceBusy": {
+    "message": "in uso"
+  },
+  "deviceBusyYou": {
+    "message": "in riproduzione"
+  },
+  "confirmTakeover": {
+    "message": "Già in uso — clicca di nuovo per sostituire"
+  },
+  "replace": {
+    "message": "Sostituisci"
   }
 }

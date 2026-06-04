@@ -155,9 +155,29 @@ header {
   border-color: var(--accent);
 }
 
+#device-list li .meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 #device-list li .model {
   color: var(--subtle);
   font-size: 11px;
+}
+
+#device-list li .busy {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--subtle);
+}
+
+#device-list li .busy.you {
+  color: var(--accent);
 }
 
 .btn {

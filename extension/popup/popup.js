@@ -6,6 +6,7 @@ const msg = (k) => browser.i18n.getMessage(k) || k;
 let devices = [];
 let devicesScanned = false;
 let offline = false; // daemon unreachable (nohost/disconnected)
+let takeoverArmed = null; // deviceId awaiting a confirm click (busy, not ours)
 
 // True when a reply indicates the daemon isn't reachable (not installed or down).
 function daemonDown(reply) {
@@ -134,6 +135,7 @@ function selectedName() {
 
 function selectDevice(id) {
   selectedId = id;
+  takeoverArmed = null; // a fresh selection cancels a pending takeover confirm
   persistSelection();
   renderDevices();
   toggleDevices(false);
@@ -163,10 +165,22 @@ function renderDevices() {
     if (selected) li.className = "selected";
     const name = document.createElement("span");
     name.textContent = d.name;
+    const right = document.createElement("span");
+    right.className = "meta";
     const model = document.createElement("span");
     model.className = "model";
     model.textContent = d.model || "";
-    li.append(name, model);
+    right.appendChild(model);
+    if (d.busy) {
+      // The device is already hosting an activity. Flag it; mark it "ours" when
+      // we have an active session on this very device.
+      const mine = session.session !== "idle" && d.id === selectedId;
+      const badge = document.createElement("span");
+      badge.className = mine ? "busy you" : "busy";
+      badge.textContent = msg(mine ? "deviceBusyYou" : "deviceBusy");
+      right.appendChild(badge);
+    }
+    li.append(name, right);
     li.addEventListener("click", () => selectDevice(d.id));
     li.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -283,6 +297,16 @@ function bind() {
 
   $("cast-video").addEventListener("click", (e) => {
     if (!castability || !castability.best) return;
+    // The target is already hosting another sender's activity (and we have no
+    // session of our own there): require a confirming second click before we
+    // take it over.
+    const dev = devices.find((d) => d.id === selectedId);
+    if (dev && dev.busy && session.session === "idle" && takeoverArmed !== selectedId) {
+      takeoverArmed = selectedId;
+      setStatus(msg("confirmTakeover"));
+      return;
+    }
+    takeoverArmed = null;
     const best = castability.best;
     return withBusy(e.currentTarget, async () => {
       setStatus(msg("statusCasting"));

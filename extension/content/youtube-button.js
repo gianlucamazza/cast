@@ -124,6 +124,11 @@
       }
       #${POP_ID} .oc-item:hover, #${POP_ID} .oc-item:focus-visible { border-color: #4a90d9; outline: none; }
       #${POP_ID} .oc-model { color: #9aa3af; font-size: 11px; }
+      #${POP_ID} .oc-busy {
+        align-self: flex-start; margin-top: 2px; font-size: 10px;
+        text-transform: uppercase; letter-spacing: .03em;
+        padding: 1px 6px; border-radius: 999px; background: #2a2f37; color: #9aa3af;
+      }
       #${POP_ID} .oc-msg { color: #9aa3af; padding: 6px 4px; }
       #${OV_ID} {
         position: absolute; inset: 0; display: flex;
@@ -257,7 +262,8 @@
     for (const d of devices) {
       const item = el("div", { class: "oc-item", role: "button", tabindex: "0" }, el("span", { text: d.name }));
       if (d.model) item.appendChild(el("span", { class: "oc-model", text: d.model }));
-      const go = () => castTo(d.id, d.name);
+      if (d.busy) item.appendChild(el("span", { class: "oc-busy", text: msg("deviceBusy") }));
+      const go = () => castTo(d.id, d.name, d.busy);
       item.addEventListener("click", go);
       item.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -279,10 +285,26 @@
     }
   }
 
-  async function castTo(deviceId, deviceName) {
+  async function castTo(deviceId, deviceName, busy, confirmed) {
     const vid = videoId();
     if (!vid) {
       closePopover();
+      return;
+    }
+    // The device is already hosting another sender's activity: confirm before
+    // taking it over (skip if we're already the active session).
+    if (busy && !casting && !confirmed) {
+      const body = document.querySelector(`#${POP_ID} .oc-body`);
+      if (body) {
+        body.replaceChildren(el("div", { class: "oc-msg", text: msg("confirmTakeover") }));
+        const ok = el("div", { class: "oc-item", role: "button", tabindex: "0" }, el("span", { text: msg("replace") }));
+        const go = () => castTo(deviceId, deviceName, busy, true);
+        ok.addEventListener("click", go);
+        ok.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+        });
+        body.appendChild(ok);
+      }
       return;
     }
     castDeviceName = deviceName || "";

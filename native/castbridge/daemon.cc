@@ -75,6 +75,7 @@ Json::Value DeviceArray(const std::vector<Device>& devices) {
     v["model"] = d.model;
     v["ip"] = d.ip;
     v["port"] = d.port;
+    v["busy"] = d.busy;  // receiver already hosting an activity (mDNS 'st')
     arr.append(v);
   }
   return arr;
