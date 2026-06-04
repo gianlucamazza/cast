@@ -28,6 +28,21 @@ LibreWolf ──native messaging──► castbridge --nm-host ──unix socket
 - `install/` — native-messaging host registration + optional systemd unit.
 - `packaging/aur/` — `PKGBUILD` for the native host.
 
+## Related repositories
+
+This product spans three repos — one product, its build base, and a predecessor:
+
+- **[gianlucamazza/cast](https://github.com/gianlucamazza/cast)** (this repo) — the
+  product: the WebExtension + the native `castbridge` daemon.
+- **[gianlucamazza/openscreen](https://github.com/gianlucamazza/openscreen)** (fork,
+  default branch `wayland-h264-sender`) — the build base: openscreen at a pinned commit
+  plus the Wayland/H.264 mirror patch. It provides the Cast library and the `cast_sender`
+  binary that `castbridge` links and spawns. `native/castbridge/` is symlinked into this
+  fork's checkout at build time (see `native/integration/`).
+- **[gianlucamazza/skill-cast](https://github.com/gianlucamazza/skill-cast)** —
+  predecessor: the Hyprland desktop-mirror Claude Code skill that this project supersedes;
+  its native `cast_sender` work lives on in the openscreen fork.
+
 ## Build
 
 The native daemon builds inside an openscreen fork (openscreen at a pinned
