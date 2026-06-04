@@ -5,6 +5,7 @@
   "description": "Firefox/LibreWolf extension that casts a media URL or mirrors the browser window/screen to a Chromecast via the native castbridge daemon.",
   "scripts": {
     "lint": "web-ext lint -c web-ext-config.mjs",
+    "check:i18n": "node scripts/check-locales.mjs",
     "start": "web-ext run -c web-ext-config.mjs",
     "build": "web-ext build -c web-ext-config.mjs",
     "sign:unlisted": "web-ext sign -c web-ext-config.mjs --channel=unlisted --api-key=\"$AMO_JWT_ISSUER\" --api-secret=\"$AMO_JWT_SECRET\"",
