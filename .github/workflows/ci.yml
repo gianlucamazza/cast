@@ -27,6 +27,9 @@ jobs:
         with:
           name: extension-xpi
           path: .web-ext-artifacts/*.zip
+          # web-ext writes to the dot-prefixed .web-ext-artifacts/; upload-artifact
+          # v4.4+ excludes hidden paths unless this is set.
+          include-hidden-files: true
           if-no-files-found: error
 
   shell:
