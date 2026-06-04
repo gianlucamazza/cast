@@ -1,0 +1,164 @@
+{
+  "extensionName": {
+    "message": "Cast"
+  },
+  "extensionDescription": {
+    "message": "Trasmetti un URL multimediale o duplica la finestra/schermo del browser su una Chromecast — backend nativo openscreen (castbridge), senza app aggiuntive."
+  },
+  "actionTitle": {
+    "message": "Cast"
+  },
+  "logo": {
+    "message": "Cast"
+  },
+  "chooseTv": {
+    "message": "Scegli una TV"
+  },
+  "noTv": {
+    "message": "Nessuna TV"
+  },
+  "devicesTitle": {
+    "message": "Dispositivi"
+  },
+  "refreshDevices": {
+    "message": "Aggiorna dispositivi"
+  },
+  "scanning": {
+    "message": "Ricerca TV in corso…"
+  },
+  "noDevicesFound": {
+    "message": "Nessuna TV trovata — il daemon è attivo?"
+  },
+  "castVideo": {
+    "message": "Trasmetti questo video"
+  },
+  "castPageVideo": {
+    "message": "Trasmetti il video della pagina"
+  },
+  "mirrorWindow": {
+    "message": "Duplica questa finestra"
+  },
+  "mirrorScreen": {
+    "message": "Duplica tutto lo schermo"
+  },
+  "hintDrm": {
+    "message": "Contenuto protetto (DRM) — duplica invece la finestra."
+  },
+  "hintNoMedia": {
+    "message": "Nessun video trasmettibile in questa scheda."
+  },
+  "mirroring": {
+    "message": "Duplicazione"
+  },
+  "stopMirroring": {
+    "message": "Interrompi duplicazione"
+  },
+  "playing": {
+    "message": "In riproduzione"
+  },
+  "youtube": {
+    "message": "YouTube"
+  },
+  "play": {
+    "message": "Riproduci"
+  },
+  "pause": {
+    "message": "Pausa"
+  },
+  "stop": {
+    "message": "Interrompi"
+  },
+  "mute": {
+    "message": "Disattiva audio"
+  },
+  "unmute": {
+    "message": "Riattiva audio"
+  },
+  "volume": {
+    "message": "Volume"
+  },
+  "seek": {
+    "message": "Scorri"
+  },
+  "statusCasting": {
+    "message": "Trasmissione…"
+  },
+  "statusCast": {
+    "message": "In trasmissione."
+  },
+  "statusMirrorStarting": {
+    "message": "Avvio duplicazione…"
+  },
+  "statusMirroringWindow": {
+    "message": "Duplicazione finestra."
+  },
+  "statusMirroringScreen": {
+    "message": "Duplicazione schermo."
+  },
+  "statusStopped": {
+    "message": "Interrotto."
+  },
+  "err_ambiguous": {
+    "message": "Più TV trovate — scegline una sopra."
+  },
+  "err_no_devices": {
+    "message": "Nessuna Chromecast su questa rete."
+  },
+  "err_no_window": {
+    "message": "Finestra non trovata — selezionala e riprova."
+  },
+  "err_no_wm": {
+    "message": "La duplicazione richiede Hyprland — non disponibile qui."
+  },
+  "err_nohost": {
+    "message": "Host nativo non installato — esegui install/install-host.sh."
+  },
+  "err_timeout": {
+    "message": "La TV non ha risposto — riprova."
+  },
+  "err_disconnected": {
+    "message": "Connessione all'host di trasmissione persa."
+  },
+  "err_unknown": {
+    "message": "Qualcosa è andato storto."
+  },
+  "ctxCastMedia": {
+    "message": "Trasmetti questo video/audio alla TV"
+  },
+  "ctxMirrorWindow": {
+    "message": "Duplica questa finestra sulla TV"
+  },
+  "notifPickTvTitle": {
+    "message": "Scegli una TV"
+  },
+  "notifNoTvTitle": {
+    "message": "Nessuna TV trovata"
+  },
+  "notifHostMissingTitle": {
+    "message": "Host di trasmissione mancante"
+  },
+  "notifCantCastTitle": {
+    "message": "Impossibile trasmettere"
+  },
+  "notifCantCastMsg": {
+    "message": "Contenuto protetto/in streaming — prova a duplicare la finestra."
+  },
+  "notifCastFailedTitle": {
+    "message": "Trasmissione fallita"
+  },
+  "notifMirrorFailedTitle": {
+    "message": "Duplicazione fallita"
+  },
+  "notifCastErrorTitle": {
+    "message": "Errore di trasmissione"
+  },
+  "ytCastToTv": {
+    "message": "Trasmetti alla TV"
+  },
+  "ytStopCasting": {
+    "message": "Interrompi trasmissione"
+  },
+  "ytPickTitle": {
+    "message": "Trasmetti a…"
+  }
+}

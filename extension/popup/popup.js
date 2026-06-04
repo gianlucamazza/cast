@@ -1,21 +1,25 @@
 /* Cast — popup UI. Talks to the background page (which owns the native port). */
 
 const $ = (id) => document.getElementById(id);
+const msg = (k) => browser.i18n.getMessage(k) || k;
 
 let devices = [];
+let devicesScanned = false;
 let selectedId = "";
 let activeTab = null;
 let castability = null;
 let session = { session: "idle", media: null, mirror: null };
 let seeking = false;
 let ytPaused = false;
+let muted = false;
+let lastVolume = 50;
 
 function host(action, args = {}) {
   return browser.runtime.sendMessage({ type: "host", action, args });
 }
 
-function setStatus(msg) {
-  $("status-line").textContent = msg || "";
+function setStatus(text) {
+  $("status-line").textContent = text || "";
 }
 
 function fmt(t) {
@@ -25,7 +29,34 @@ function fmt(t) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Replace static strings in markup with their localized text.
+function applyI18n() {
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = msg(el.dataset.i18n);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-label]")) {
+    el.setAttribute("aria-label", msg(el.dataset.i18nLabel));
+  }
+  for (const el of document.querySelectorAll("[data-i18n-title]")) {
+    el.title = msg(el.dataset.i18nTitle);
+  }
+}
+
+// Disable a button and show a spinner while an async action is in flight.
+async function withBusy(btn, fn) {
+  btn.classList.add("busy");
+  btn.setAttribute("aria-busy", "true");
+  try {
+    return await fn();
+  } finally {
+    btn.classList.remove("busy");
+    btn.removeAttribute("aria-busy");
+  }
+}
+
 async function init() {
+  applyI18n();
+
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   activeTab = tabs[0] || null;
 
@@ -39,15 +70,10 @@ async function init() {
   session = state.session || session;
   devices = state.devices || [];
   castability = state.castability || null;
+  devicesScanned = devices.length > 0;
 
   // Refresh device list from the daemon (live mDNS).
-  host("devices").then((r) => {
-    if (r && r.ok) {
-      devices = r.data.candidates || [];
-      ensureSelection();
-      renderDevices();
-    }
-  });
+  loadDevices();
   host("status").then((r) => {
     if (r && r.ok) {
       session = r.data;
@@ -61,6 +87,19 @@ async function init() {
   bind();
 }
 
+function loadDevices() {
+  devicesScanned = false;
+  renderDevices();
+  return host("devices").then((r) => {
+    if (r && r.ok) {
+      devices = r.data.candidates || [];
+      ensureSelection();
+    }
+    devicesScanned = true;
+    renderDevices();
+  });
+}
+
 function ensureSelection() {
   if (!devices.length) return;
   if (!selectedId || !devices.some((d) => d.id === selectedId)) {
@@ -71,30 +110,57 @@ function ensureSelection() {
 
 function selectedName() {
   const d = devices.find((x) => x.id === selectedId);
-  return d ? d.name : "No TV";
+  return d ? d.name : msg("noTv");
+}
+
+function selectDevice(id) {
+  selectedId = id;
+  browser.storage.local.set({ deviceId: selectedId });
+  renderDevices();
+  toggleDevices(false);
+}
+
+function toggleDevices(open) {
+  const panel = $("devices");
+  const willOpen = open === undefined ? panel.classList.contains("hidden") : open;
+  panel.classList.toggle("hidden", !willOpen);
+  $("device-chip").setAttribute("aria-expanded", String(willOpen));
+  if (willOpen) {
+    const sel = $("device-list").querySelector('[aria-selected="true"]') || $("device-list").firstElementChild;
+    if (sel) sel.focus();
+  }
 }
 
 function renderDevices() {
-  $("device-chip").textContent = devices.length ? selectedName() : "No TV";
+  $("device-chip").textContent = devices.length ? selectedName() : msg("noTv");
   const ul = $("device-list");
   ul.replaceChildren();
   for (const d of devices) {
     const li = document.createElement("li");
-    if (d.id === selectedId) li.className = "selected";
+    li.setAttribute("role", "option");
+    li.tabIndex = 0;
+    const selected = d.id === selectedId;
+    li.setAttribute("aria-selected", String(selected));
+    if (selected) li.className = "selected";
     const name = document.createElement("span");
     name.textContent = d.name;
     const model = document.createElement("span");
     model.className = "model";
     model.textContent = d.model || "";
     li.append(name, model);
-    li.addEventListener("click", () => {
-      selectedId = d.id;
-      browser.storage.local.set({ deviceId: selectedId });
-      renderDevices();
-      $("devices").classList.add("hidden");
+    li.addEventListener("click", () => selectDevice(d.id));
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectDevice(d.id);
+      }
     });
     ul.appendChild(li);
   }
+  const empty = devices.length === 0;
+  $("devices-scanning").classList.toggle("hidden", devicesScanned);
+  $("devices-empty").classList.toggle("hidden", !(devicesScanned && empty));
+  ul.classList.toggle("hidden", empty);
 }
 
 function render() {
@@ -109,7 +175,7 @@ function render() {
   if (session.session === "media" && session.media) {
     renderMedia(session.media);
   } else if (session.session === "youtube") {
-    renderYouTube(session.youtube || { title: "YouTube" });
+    renderYouTube(session.youtube || { title: msg("youtube") });
   } else if (session.session === "mirror" && session.mirror) {
     const m = session.mirror;
     $("mirror-target").textContent = `${m.mode === "window" ? "window" : "screen"}: ${m.target || ""} → ${m.device || ""}`;
@@ -118,12 +184,18 @@ function render() {
   }
 }
 
+function setPlayPause(paused) {
+  const btn = $("playpause");
+  btn.classList.toggle("is-paused", paused);
+  btn.setAttribute("aria-label", msg(paused ? "play" : "pause"));
+}
+
 function renderYouTube(y) {
-  $("media-title").textContent = y.title || "YouTube";
+  $("media-title").textContent = y.title || msg("youtube");
   // The Lounge API doesn't give us reliable position, so hide the scrubber.
   $("seek").style.display = "none";
   document.querySelector(".times").style.display = "none";
-  $("playpause").textContent = "⏯";
+  setPlayPause(ytPaused);
 }
 
 function renderIdle() {
@@ -131,19 +203,19 @@ function renderIdle() {
   const btn = $("cast-video");
   if (c && c.best && !c.drm) {
     btn.disabled = false;
-    btn.textContent = c.best.kind === "site" ? "Cast this page's video" : "Cast this video";
+    btn.textContent = c.best.kind === "site" ? msg("castPageVideo") : msg("castVideo");
     $("hint").textContent = "";
   } else {
     btn.disabled = true;
-    btn.textContent = "Cast this video";
-    $("hint").textContent = c && c.drm ? "Protected media (DRM) — mirror the window instead." : "No castable video detected on this tab.";
+    btn.textContent = msg("castVideo");
+    $("hint").textContent = c && c.drm ? msg("hintDrm") : msg("hintNoMedia");
   }
 }
 
 function renderMedia(m) {
   $("seek").style.display = "";
   document.querySelector(".times").style.display = "";
-  $("media-title").textContent = m.title || "Playing";
+  $("media-title").textContent = m.title || msg("playing");
   const dur = m.duration || 0;
   const pos = m.position || 0;
   if (!seeking) {
@@ -152,7 +224,7 @@ function renderMedia(m) {
   }
   $("pos").textContent = fmt(pos);
   $("dur").textContent = fmt(dur);
-  $("playpause").textContent = m.state === "PAUSED" ? "▶" : "⏸";
+  setPlayPause(m.state === "PAUSED");
 }
 
 function show(id, on) {
@@ -164,51 +236,62 @@ function reply(r, okMsg) {
     setStatus(okMsg || "");
   } else {
     const e = (r && r.error) || {};
-    if (e.code === "ambiguous") setStatus("Several TVs — pick one above.");
-    else if (e.code === "no_devices") setStatus("No Chromecast on this network.");
-    else if (e.code === "nohost") setStatus("Native host not installed.");
-    else setStatus(e.message || "Error");
+    setStatus(CastErrors.errorMessage(e.code, e.message));
   }
 }
 
-function bind() {
-  $("device-chip").addEventListener("click", () => $("devices").classList.toggle("hidden"));
+function setMuteUi() {
+  const btn = $("mute");
+  btn.classList.toggle("is-muted", muted);
+  btn.setAttribute("aria-pressed", String(muted));
+  btn.setAttribute("aria-label", msg(muted ? "unmute" : "mute"));
+}
 
-  $("cast-video").addEventListener("click", async () => {
+function bind() {
+  $("device-chip").addEventListener("click", () => toggleDevices());
+  $("refresh-devices").addEventListener("click", () => loadDevices());
+
+  $("cast-video").addEventListener("click", (e) => {
     if (!castability || !castability.best) return;
     const best = castability.best;
-    setStatus("Casting…");
-    let r;
-    if (best.kind === "youtube") {
-      r = await host("youtube-load", {
-        deviceId: selectedId,
-        videoId: best.videoId,
-        currentTime: best.startTime || 0,
-      });
-    } else {
-      r = await host("media-load", {
-        deviceId: selectedId,
-        url: best.castUrl,
-        title: best.title || (activeTab && activeTab.title) || "",
-      });
-    }
-    reply(r, "Casting.");
-    if (r && r.ok) refreshStatus();
+    return withBusy(e.currentTarget, async () => {
+      setStatus(msg("statusCasting"));
+      let r;
+      if (best.kind === "youtube") {
+        r = await host("youtube-load", {
+          deviceId: selectedId,
+          videoId: best.videoId,
+          currentTime: best.startTime || 0,
+        });
+      } else {
+        r = await host("media-load", {
+          deviceId: selectedId,
+          url: best.castUrl,
+          title: best.title || (activeTab && activeTab.title) || "",
+        });
+      }
+      reply(r, msg("statusCast"));
+      if (r && r.ok) refreshStatus();
+    });
   });
 
-  $("mirror-window").addEventListener("click", async () => {
-    setStatus("Starting mirror…");
-    const r = await host("mirror-window", { deviceId: selectedId, selector: "librewolf" });
-    reply(r, "Mirroring window.");
-    if (r && r.ok) refreshStatus();
-  });
+  $("mirror-window").addEventListener("click", (e) =>
+    withBusy(e.currentTarget, async () => {
+      setStatus(msg("statusMirrorStarting"));
+      const r = await host("mirror-window", { deviceId: selectedId, selector: "librewolf" });
+      reply(r, msg("statusMirroringWindow"));
+      if (r && r.ok) refreshStatus();
+    })
+  );
 
-  $("mirror-screen").addEventListener("click", async () => {
-    setStatus("Starting mirror…");
-    const r = await host("mirror-screen", { deviceId: selectedId });
-    reply(r, "Mirroring screen.");
-    if (r && r.ok) refreshStatus();
-  });
+  $("mirror-screen").addEventListener("click", (e) =>
+    withBusy(e.currentTarget, async () => {
+      setStatus(msg("statusMirrorStarting"));
+      const r = await host("mirror-screen", { deviceId: selectedId });
+      reply(r, msg("statusMirroringScreen"));
+      if (r && r.ok) refreshStatus();
+    })
+  );
 
   $("playpause").addEventListener("click", async () => {
     if (session.session === "youtube") {
@@ -216,11 +299,11 @@ function bind() {
       // assume "playing" after load and flip on each press. Roll back on error.
       const was = ytPaused;
       ytPaused = !ytPaused;
-      $("playpause").textContent = ytPaused ? "▶" : "⏸";
+      setPlayPause(ytPaused);
       const r = await host("media-control", { cmd: ytPaused ? "pause" : "play" });
       if (!r || !r.ok) {
         ytPaused = was;
-        $("playpause").textContent = "⏯";
+        setPlayPause(ytPaused);
         reply(r);
       }
       return;
@@ -235,12 +318,21 @@ function bind() {
     session = { session: "idle", media: null, mirror: null };
     ytPaused = false;
     render();
-    setStatus("Stopped.");
+    setStatus(msg("statusStopped"));
     host("stop").catch(() => {});
     setTimeout(refreshStatus, 1200);
   };
   $("stop-media").addEventListener("click", stopOptimistic);
   $("stop-mirror").addEventListener("click", stopOptimistic);
+
+  $("mute").addEventListener("click", async () => {
+    muted = !muted;
+    setMuteUi();
+    const vol = muted ? 0 : lastVolume;
+    $("volume").value = vol;
+    const r = await host("media-control", { cmd: "volume", value: vol });
+    if (!r || !r.ok) reply(r);
+  });
 
   const seek = $("seek");
   seek.addEventListener("input", () => {
@@ -257,7 +349,11 @@ function bind() {
   });
 
   $("volume").addEventListener("change", async (e) => {
-    const r = await host("media-control", { cmd: "volume", value: Number(e.target.value) });
+    const v = Number(e.target.value);
+    if (v > 0) lastVolume = v;
+    muted = v === 0;
+    setMuteUi();
+    const r = await host("media-control", { cmd: "volume", value: v });
     if (!r || !r.ok) reply(r);
   });
 }
@@ -271,9 +367,9 @@ async function refreshStatus() {
 }
 
 // Live updates pushed by the daemon (relayed by background).
-browser.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === "cast-event") {
-    const ev = msg.event;
+browser.runtime.onMessage.addListener((m) => {
+  if (m && m.type === "cast-event") {
+    const ev = m.event;
     if (ev.type === "media-status") {
       // media-status applies to the URL receiver. Don't clobber a YouTube
       // session (which has no status push) on a null/idle frame.
@@ -286,6 +382,7 @@ browser.runtime.onMessage.addListener((msg) => {
       }
     } else if (ev.type === "devices-changed") {
       devices = (ev.data && ev.data.candidates) || [];
+      devicesScanned = true;
       ensureSelection();
       renderDevices();
     }

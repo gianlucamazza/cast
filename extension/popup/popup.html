@@ -7,45 +7,66 @@
   </head>
   <body>
     <header>
-      <span class="logo">Cast</span>
-      <button id="device-chip" class="chip" title="Choose a TV">No TV</button>
+      <span class="logo" data-i18n="logo">Cast</span>
+      <button id="device-chip" class="chip" data-i18n-title="chooseTv" data-i18n="noTv" aria-haspopup="listbox" aria-expanded="false" title="Choose a TV">No TV</button>
     </header>
 
     <section id="devices" class="panel hidden">
-      <div class="panel-title">Devices</div>
-      <ul id="device-list"></ul>
+      <div class="panel-head">
+        <h2 class="panel-title" data-i18n="devicesTitle">Devices</h2>
+        <button id="refresh-devices" class="iconbtn" data-i18n-label="refreshDevices" aria-label="Refresh devices">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M20 11a8 8 0 1 0-1 5"/><path fill="currentColor" d="M20 4v6h-6z"/></svg>
+        </button>
+      </div>
+      <p id="devices-scanning" class="hint" data-i18n="scanning">Scanning for TVs…</p>
+      <p id="devices-empty" class="hint hidden" data-i18n="noDevicesFound">No TV found — is the daemon running?</p>
+      <ul id="device-list" role="listbox" data-i18n-label="devicesTitle" aria-label="Devices"></ul>
     </section>
 
     <section id="main" class="panel">
       <!-- IDLE -->
       <div id="idle">
-        <button id="cast-video" class="btn primary" disabled>Cast this video</button>
-        <button id="mirror-window" class="btn">Mirror this window</button>
-        <button id="mirror-screen" class="btn">Mirror full screen</button>
-        <p id="hint" class="hint"></p>
+        <button id="cast-video" class="btn primary" disabled data-i18n="castVideo">Cast this video</button>
+        <button id="mirror-window" class="btn" data-i18n="mirrorWindow">Mirror this window</button>
+        <button id="mirror-screen" class="btn" data-i18n="mirrorScreen">Mirror full screen</button>
+        <p id="hint" class="hint" aria-live="polite"></p>
       </div>
 
       <!-- MEDIA -->
       <div id="media" class="hidden">
         <div id="media-title" class="title">—</div>
+        <label class="sr-only" for="seek" data-i18n="seek">Seek</label>
         <input id="seek" type="range" min="0" max="100" value="0" />
         <div class="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
         <div class="controls">
-          <button id="playpause" class="btn icon">⏸</button>
-          <button id="stop-media" class="btn icon">⏹</button>
-          <label class="vol">🔊<input id="volume" type="range" min="0" max="100" value="50" /></label>
+          <button id="playpause" class="btn icon is-playing" data-i18n-label="pause" aria-label="Pause">
+            <svg class="i i-pause" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+            <svg class="i i-play" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button id="stop-media" class="btn icon" data-i18n-label="stop" aria-label="Stop">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
+          </button>
+          <div class="vol">
+            <button id="mute" class="btn icon" data-i18n-label="mute" aria-label="Mute" aria-pressed="false">
+              <svg class="i i-vol" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M16 8a5 5 0 0 1 0 8"/></svg>
+              <svg class="i i-mute" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3z"/><path fill="none" stroke="currentColor" stroke-width="2" d="m16 9 6 6m0-6-6 6"/></svg>
+            </button>
+            <label class="sr-only" for="volume" data-i18n="volume">Volume</label>
+            <input id="volume" type="range" min="0" max="100" value="50" />
+          </div>
         </div>
       </div>
 
       <!-- MIRROR -->
       <div id="mirror" class="hidden">
-        <div class="title">Mirroring</div>
+        <div class="title" data-i18n="mirroring">Mirroring</div>
         <div id="mirror-target" class="subtle">—</div>
-        <button id="stop-mirror" class="btn primary">Stop mirroring</button>
+        <button id="stop-mirror" class="btn primary" data-i18n="stopMirroring">Stop mirroring</button>
       </div>
     </section>
 
-    <p id="status-line" class="status"></p>
+    <p id="status-line" class="status" role="status" aria-live="polite"></p>
+    <script src="../common/errors.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

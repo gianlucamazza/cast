@@ -1,0 +1,164 @@
+{
+  "extensionName": {
+    "message": "Cast"
+  },
+  "extensionDescription": {
+    "message": "Cast a media URL or mirror the browser window/screen to a Chromecast — native openscreen backend (castbridge), no extra apps."
+  },
+  "actionTitle": {
+    "message": "Cast"
+  },
+  "logo": {
+    "message": "Cast"
+  },
+  "chooseTv": {
+    "message": "Choose a TV"
+  },
+  "noTv": {
+    "message": "No TV"
+  },
+  "devicesTitle": {
+    "message": "Devices"
+  },
+  "refreshDevices": {
+    "message": "Refresh devices"
+  },
+  "scanning": {
+    "message": "Scanning for TVs…"
+  },
+  "noDevicesFound": {
+    "message": "No TV found — is the daemon running?"
+  },
+  "castVideo": {
+    "message": "Cast this video"
+  },
+  "castPageVideo": {
+    "message": "Cast this page's video"
+  },
+  "mirrorWindow": {
+    "message": "Mirror this window"
+  },
+  "mirrorScreen": {
+    "message": "Mirror full screen"
+  },
+  "hintDrm": {
+    "message": "Protected media (DRM) — mirror the window instead."
+  },
+  "hintNoMedia": {
+    "message": "No castable video detected on this tab."
+  },
+  "mirroring": {
+    "message": "Mirroring"
+  },
+  "stopMirroring": {
+    "message": "Stop mirroring"
+  },
+  "playing": {
+    "message": "Playing"
+  },
+  "youtube": {
+    "message": "YouTube"
+  },
+  "play": {
+    "message": "Play"
+  },
+  "pause": {
+    "message": "Pause"
+  },
+  "stop": {
+    "message": "Stop"
+  },
+  "mute": {
+    "message": "Mute"
+  },
+  "unmute": {
+    "message": "Unmute"
+  },
+  "volume": {
+    "message": "Volume"
+  },
+  "seek": {
+    "message": "Seek"
+  },
+  "statusCasting": {
+    "message": "Casting…"
+  },
+  "statusCast": {
+    "message": "Casting."
+  },
+  "statusMirrorStarting": {
+    "message": "Starting mirror…"
+  },
+  "statusMirroringWindow": {
+    "message": "Mirroring window."
+  },
+  "statusMirroringScreen": {
+    "message": "Mirroring screen."
+  },
+  "statusStopped": {
+    "message": "Stopped."
+  },
+  "err_ambiguous": {
+    "message": "Several TVs — pick one above."
+  },
+  "err_no_devices": {
+    "message": "No Chromecast on this network."
+  },
+  "err_no_window": {
+    "message": "Window not found — focus it and try again."
+  },
+  "err_no_wm": {
+    "message": "Mirroring needs Hyprland — not available here."
+  },
+  "err_nohost": {
+    "message": "Native host not installed — run install/install-host.sh."
+  },
+  "err_timeout": {
+    "message": "The TV didn't respond — try again."
+  },
+  "err_disconnected": {
+    "message": "Lost connection to the cast host."
+  },
+  "err_unknown": {
+    "message": "Something went wrong."
+  },
+  "ctxCastMedia": {
+    "message": "Cast this video/audio to TV"
+  },
+  "ctxMirrorWindow": {
+    "message": "Mirror this window to TV"
+  },
+  "notifPickTvTitle": {
+    "message": "Pick a TV"
+  },
+  "notifNoTvTitle": {
+    "message": "No TV found"
+  },
+  "notifHostMissingTitle": {
+    "message": "Cast host missing"
+  },
+  "notifCantCastTitle": {
+    "message": "Can't cast this"
+  },
+  "notifCantCastMsg": {
+    "message": "Protected/streamed media — try mirroring the window."
+  },
+  "notifCastFailedTitle": {
+    "message": "Cast failed"
+  },
+  "notifMirrorFailedTitle": {
+    "message": "Mirror failed"
+  },
+  "notifCastErrorTitle": {
+    "message": "Cast error"
+  },
+  "ytCastToTv": {
+    "message": "Cast to TV"
+  },
+  "ytStopCasting": {
+    "message": "Stop casting"
+  },
+  "ytPickTitle": {
+    "message": "Cast to…"
+  }
+}

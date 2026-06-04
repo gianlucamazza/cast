@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Cast",
+  "name": "__MSG_extensionName__",
   "version": "0.1.0",
-  "description": "Cast a media URL or mirror the browser window/screen to a Chromecast — native openscreen backend (castbridge), no extra apps.",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
 
   "browser_specific_settings": {
     "gecko": {
@@ -25,11 +26,11 @@
   ],
 
   "background": {
-    "scripts": ["background/background.js"]
+    "scripts": ["common/errors.js", "background/background.js"]
   },
 
   "action": {
-    "default_title": "Cast",
+    "default_title": "__MSG_actionTitle__",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/cast-16.png",
@@ -43,6 +44,11 @@
       "all_frames": true,
       "run_at": "document_idle",
       "js": ["content/detect.js"]
+    },
+    {
+      "matches": ["*://www.youtube.com/*"],
+      "run_at": "document_idle",
+      "js": ["common/errors.js", "content/youtube-button.js"]
     }
   ],
 
