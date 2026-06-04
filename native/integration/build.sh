@@ -11,7 +11,9 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 SRC_DIR="$REPO_DIR/native/castbridge"
 
-OPENSCREEN_DIR="${OPENSCREEN_DIR:-$HOME/Workspace/openscreen}"
+# Default to the fork checkout sibling of this repo (../openscreen-build/openscreen);
+# override with $OPENSCREEN_DIR for any other layout (CI, packaging).
+OPENSCREEN_DIR="${OPENSCREEN_DIR:-$(dirname "$REPO_DIR")/openscreen-build/openscreen}"
 OUT_DIR="${OUT_DIR:-out/Default}"
 
 [[ -d "$OPENSCREEN_DIR" ]] || {
@@ -54,11 +56,31 @@ wire() {
 	echo "wired $desc"
 }
 
-# 1) Sync sources into the fork tree.
+# 1) Link the source tree into the fork checkout. A symlink (not a copy) keeps a
+# single source of truth: editing the sources through the fork checkout edits
+# this repo directly, so there is no copy to drift or lose edits to.
 dest="$OPENSCREEN_DIR/cast/castbridge"
-mkdir -p "$dest"
-cp -f "$SRC_DIR"/*.cc "$SRC_DIR"/*.h "$SRC_DIR"/BUILD.gn "$dest/"
-echo "synced sources -> $dest"
+if [[ -L "$dest" ]]; then
+	: # already a symlink; leave it (refreshed below anyway)
+elif [[ -e "$dest" ]]; then
+	rm -rf "$dest" # drop a stale real copy from the old cp-based flow
+fi
+ln -sfn "$SRC_DIR" "$dest" # absolute target; the link is local-only, never committed
+echo "linked sources -> $dest -> $SRC_DIR"
+
+# 1b) Keep the fork's `git status` clean: the linked sources and the generated
+# compile DB are build artifacts, not fork content. Ignore them locally via
+# .git/info/exclude (never the tracked .gitignore — that would itself show as a
+# modification). Idempotent. Note: the pattern has NO trailing slash — a trailing
+# slash only matches a directory, but cast/castbridge is now a symlink, which git
+# would otherwise report as untracked. Drop any old slashed entry.
+exclude="$OPENSCREEN_DIR/.git/info/exclude"
+if [[ -f "$exclude" ]]; then
+	sed -i '\#^cast/castbridge/$#d' "$exclude" # remove stale slashed pattern
+	for pat in 'cast/castbridge' '/out/Default/compile_commands.json'; do
+		grep -qxF "$pat" "$exclude" || echo "$pat" >>"$exclude"
+	done
+fi
 
 # 2) Wire the target into gn_all.
 wire "$OPENSCREEN_DIR/BUILD.gn" 'cast/castbridge:castbridge' \

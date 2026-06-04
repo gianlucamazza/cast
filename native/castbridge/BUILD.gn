@@ -12,6 +12,8 @@ if (!build_with_chromium) {
     visibility = [ "../..:gn_all" ]
 
     sources = [
+      "cast_channel_client.cc",
+      "cast_channel_client.h",
       "castbridge_main.cc",
       "daemon.cc",
       "daemon.h",

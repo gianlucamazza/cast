@@ -1,6 +1,7 @@
 #include "cast/castbridge/mirror_controller.h"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -42,26 +43,12 @@ std::string Bitrate() {
 
 std::string LogPath() {
   const char* xdg = std::getenv("XDG_STATE_HOME");
-  std::string base = (xdg && *xdg) ? std::string(xdg)
-                                   : std::string(std::getenv("HOME")) + "/.local/state";
+  std::string base = (xdg && *xdg)
+                         ? std::string(xdg)
+                         : std::string(std::getenv("HOME")) + "/.local/state";
   std::string dir = base + "/castbridge";
   mkdir(dir.c_str(), 0700);
   return dir + "/mirror.log";
-}
-
-std::string ReadFile(const std::string& path) {
-  FILE* f = fopen(path.c_str(), "r");
-  if (!f) {
-    return "";
-  }
-  std::string out;
-  char buf[4096];
-  size_t n;
-  while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-    out.append(buf, n);
-  }
-  fclose(f);
-  return out;
 }
 
 std::string TailFile(const std::string& path, size_t max) {
@@ -71,7 +58,8 @@ std::string TailFile(const std::string& path, size_t max) {
   }
   fseek(f, 0, SEEK_END);
   long size = ftell(f);
-  long start = size > static_cast<long>(max) ? size - static_cast<long>(max) : 0;
+  long start =
+      size > static_cast<long>(max) ? size - static_cast<long>(max) : 0;
   fseek(f, start, SEEK_SET);
   std::string out;
   char buf[1024];
@@ -89,11 +77,41 @@ MirrorController::~MirrorController() {
   Stop();
 }
 
-// Wait until the sender confirms streaming, fails negotiation, or exits.
-// Returns: 1 = streaming, 0 = failed/timeout (caller may retry), -1 = exited.
 namespace {
 enum class StartResult { kStreaming, kFailed, kExited };
+
+// Wait for the sender to report its outcome on the dedicated status pipe. The
+// child writes "streaming" once negotiation succeeds or "failed" on negotiation
+// error (see LoopingFileCastAgent + CASTBRIDGE_STATUS_FD); pipe EOF or process
+// exit means it died without reporting. This replaces scraping the human-facing
+// log for "Streaming to ", which coupled us to the library's log wording.
+StartResult WaitForStatus(int read_fd, pid_t pid) {
+  constexpr int kTimeoutMs = 12000;
+  std::string buf;
+  for (int waited = 0; waited < kTimeoutMs; waited += 200) {
+    struct pollfd pfd = {read_fd, POLLIN, 0};
+    if (poll(&pfd, 1, 200) > 0 && (pfd.revents & (POLLIN | POLLHUP))) {
+      char tmp[256];
+      ssize_t n = read(read_fd, tmp, sizeof(tmp));
+      if (n > 0) {
+        buf.append(tmp, static_cast<size_t>(n));
+        if (buf.find("streaming") != std::string::npos) {
+          return StartResult::kStreaming;
+        }
+        if (buf.find("failed") != std::string::npos) {
+          return StartResult::kFailed;
+        }
+      } else if (n == 0) {
+        return StartResult::kExited;  // all write ends closed: child gone
+      }
+    }
+    if (waitpid(pid, nullptr, WNOHANG) == pid) {
+      return StartResult::kExited;
+    }
+  }
+  return StartResult::kFailed;  // timeout
 }
+}  // namespace
 
 std::string MirrorController::Launch(const std::string& ip,
                                      const std::string& target,
@@ -126,11 +144,25 @@ std::string MirrorController::Launch(const std::string& ip,
   // AnswerTimeout); retry once before reporting failure.
   std::string last_err;
   for (int attempt = 0; attempt < 2; ++attempt) {
+    int status_pipe[2];
+    if (pipe(status_pipe) != 0) {
+      return "pipe failed";
+    }
     pid_t pid = fork();
     if (pid < 0) {
+      close(status_pipe[0]);
+      close(status_pipe[1]);
       return "fork failed";
     }
     if (pid == 0) {
+      // Own process group so StopInternal can signal the whole tree, not just
+      // the direct child.
+      setpgid(0, 0);
+      close(status_pipe[0]);  // child only writes
+      // Hand the write end to cast_sender via a fixed env var; it survives exec
+      // (not close-on-exec) and is where the agent reports
+      // "streaming"/"failed".
+      setenv("CASTBRIDGE_STATUS_FD", std::to_string(status_pipe[1]).c_str(), 1);
       int fd = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd >= 0) {
         dup2(fd, STDOUT_FILENO);
@@ -146,26 +178,10 @@ std::string MirrorController::Launch(const std::string& ip,
       _exit(127);
     }
 
-    // Poll the sender log for a definitive streaming/failure signal (~10s).
-    // No lock held here: only reads a log file.
-    StartResult result = StartResult::kFailed;
-    for (int i = 0; i < 50; ++i) {
-      usleep(200 * 1000);
-      const std::string contents = ReadFile(log);
-      if (contents.find("Streaming to ") != std::string::npos) {
-        result = StartResult::kStreaming;
-        break;
-      }
-      if (contents.find("AnswerTimeout") != std::string::npos ||
-          contents.find("fatal error") != std::string::npos) {
-        result = StartResult::kFailed;
-        break;
-      }
-      if (waitpid(pid, nullptr, WNOHANG) == pid) {
-        result = StartResult::kExited;
-        break;
-      }
-    }
+    close(status_pipe[1]);  // parent only reads
+    // No lock held here: WaitForStatus only blocks on the pipe / child.
+    const StartResult result = WaitForStatus(status_pipe[0], pid);
+    close(status_pipe[0]);
 
     if (result == StartResult::kStreaming) {
       uint64_t gen;
@@ -183,7 +199,7 @@ std::string MirrorController::Launch(const std::string& ip,
     }
     last_err = "sender did not start streaming:\n" + TailFile(log, 800);
     if (result != StartResult::kExited) {
-      kill(pid, SIGKILL);
+      kill(-pid, SIGKILL);       // whole process group
       waitpid(pid, nullptr, 0);  // reap the failed attempt
     }
   }
@@ -210,9 +226,9 @@ std::string MirrorController::StartScreen(const std::string& ip,
                 device);
 }
 
-// Reaps the sender when it exits (stop OR natural death: window closed, TV off),
-// and announces the change. The generation guard prevents a stale monitor from
-// touching a newer session. Only this thread calls waitpid on the child.
+// Reaps the sender when it exits (stop OR natural death: window closed, TV
+// off), and announces the change. The generation guard prevents a stale monitor
+// from touching a newer session. Only this thread calls waitpid on the child.
 void MirrorController::Monitor(pid_t pid, uint64_t gen) {
   waitpid(pid, nullptr, 0);  // block until the sender process exits
   bool changed = false;
@@ -248,7 +264,9 @@ void MirrorController::StopInternal() {
     on_change_();  // announce idle promptly
   }
   if (pid > 0) {
-    kill(pid, SIGTERM);
+    // Signal the whole process group (negative pid) so any helper the sender
+    // spawned dies with it; fall back to the bare pid if the group is gone.
+    kill(-pid, SIGTERM);
     for (int i = 0; i < 10; ++i) {  // ~500ms graceful window
       if (kill(pid, 0) != 0) {
         break;
@@ -256,7 +274,7 @@ void MirrorController::StopInternal() {
       usleep(50 * 1000);
     }
     if (kill(pid, 0) == 0) {
-      kill(pid, SIGKILL);
+      kill(-pid, SIGKILL);
     }
   }
   if (monitor_.joinable()) {

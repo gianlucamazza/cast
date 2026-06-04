@@ -1,6 +1,18 @@
 // Resolves a Hyprland window to its address + PID for window mirroring. Uses
-// `hyprctl -j` (a generic Hyprland tool) and matches by app-id (class) or title.
-// This is our own native resolution; it does not use any skill-cast helper.
+// `hyprctl -j` (a generic Hyprland tool) and matches by app-id (class) or
+// title. This is our own native resolution; it does not use any skill-cast
+// helper.
+//
+// Division of labour with cast_sender's ScreenCapturer (which can ALSO match a
+// window by app-id/title via the Wayland ext-foreign-toplevel protocol): the
+// daemon resolves the selector to a single canonical key here — the Hyprland
+// window *address* — plus the PID (needed for `--audio-pid`, which
+// ScreenCapturer cannot provide), then drives cast_sender purely by address
+// (`window:addr=...`). So there is no double selector-matching at runtime: this
+// side matches once; ScreenCapturer selects strictly by address and refuses to
+// fall back to an arbitrary window if that address is unmapped (see
+// ScreenCapturer::SelectToplevel). ScreenCapturer's own selector matching is
+// retained only for standalone CLI use.
 #ifndef CAST_CASTBRIDGE_WINDOW_RESOLVER_H_
 #define CAST_CASTBRIDGE_WINDOW_RESOLVER_H_
 
