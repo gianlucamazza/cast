@@ -243,7 +243,8 @@ void HandleRequest(IpcServer& server,
         }
       } else {
         const std::string label = w.title.empty() ? w.app_class : w.title;
-        std::string e = mirror.StartWindow(ip, w.address, w.pid, label, name);
+        std::string e =
+            mirror.StartWindow(ip, w.address, w.pid, w.app_class, label, name);
         if (e.empty()) {
           Json::Value data(Json::objectValue);
           data["mode"] = "window";

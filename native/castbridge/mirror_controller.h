@@ -35,6 +35,7 @@ class MirrorController {
   std::string StartWindow(const std::string& ip,
                           const std::string& address,
                           int audio_pid,
+                          const std::string& audio_app,
                           const std::string& label,
                           const std::string& device);
   std::string StartScreen(const std::string& ip,
@@ -48,6 +49,7 @@ class MirrorController {
   std::string Launch(const std::string& ip,
                      const std::string& target,
                      int audio_pid,
+                     const std::string& audio_app,
                      const std::string& mode,
                      const std::string& label,
                      const std::string& device);

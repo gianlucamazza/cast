@@ -105,7 +105,7 @@ TEST_F(MirrorControllerTest, StartScreenSucceedsWhenSenderStreams) {
 TEST_F(MirrorControllerTest, StartWindowRejectsEmptyAddress) {
   SetMode("streaming-stay");
   const std::string err =
-      controller_.StartWindow("127.0.0.1", "", 0, "Firefox", "TV");
+      controller_.StartWindow("127.0.0.1", "", 0, "firefox", "Firefox", "TV");
   EXPECT_NE(err, "");
   EXPECT_FALSE(controller_.GetStatus().active);
 }

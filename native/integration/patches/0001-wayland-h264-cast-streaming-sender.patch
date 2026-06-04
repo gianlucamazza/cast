@@ -1,27 +1,15 @@
-From 3ac69361174cad3a4d14f1b7b533370fce66d849 Mon Sep 17 00:00:00 2001
+From 77ecd49fa43eacce8478309f9aab15244ad3305f Mon Sep 17 00:00:00 2001
 From: Gianluca <info@gianlucamazza.it>
-Date: Wed, 3 Jun 2026 09:33:45 +0200
+Date: Thu, 4 Jun 2026 13:36:05 +0200
 Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
- sender
 
-Hand-written sender that the TV's built-in mirroring receiver accepts:
-Hyprland capture (ext-image-copy-capture) -> swscale -> hardware H.264
-(VAAPI CQP) -> openscreen RTP, with PipeWire desktop/per-app audio -> Opus.
-~120ms glass-to-glass, 1080p, no app installed on the TV.
-
-- screen_capturer, screen_mirror_sender: output (screen:) and single-window
-  (window:addr=, via hyprland-toplevel-mapping-v1) capture + A/V glue.
-- h264_vaapi_encoder: VAAPI h264_vaapi CQP -> EncodedFrame.
-- audio_capturer: default-sink monitor or per-app (PID+descendants) -> Opus.
-- ext-*-v1 + hyprland-toplevel-mapping-v1: wayland-scanner client glue.
-- main.cc, looping_file_cast_agent, BUILD.gn, connection_settings: wiring.
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
+ BUILD.gn                                      |   1 +
+ cast/common/BUILD.gn                          |   2 +
  cast/standalone_sender/BUILD.gn               |  25 +
- cast/standalone_sender/audio_capturer.cc      | 365 +++++++
- cast/standalone_sender/audio_capturer.h       | 117 +++
- cast/standalone_sender/connection_settings.h  |   4 +
+ cast/standalone_sender/audio_capturer.cc      | 417 ++++++++
+ cast/standalone_sender/audio_capturer.h       | 129 +++
+ cast/standalone_sender/connection_settings.h  |   9 +
  .../ext-foreign-toplevel-list-v1-client.h     | 442 ++++++++
  .../ext-foreign-toplevel-list-v1.c            |  86 ++
  .../ext-image-capture-source-v1-client.h      | 310 ++++++
@@ -33,14 +21,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../hyprland-toplevel-mapping-v1-client.h     | 259 +++++
  .../hyprland-toplevel-mapping-v1.c            |  83 ++
  .../hyprland-toplevel-mapping-v1.xml          | 107 ++
- .../looping_file_cast_agent.cc                |  33 +-
+ .../looping_file_cast_agent.cc                |  58 +-
  .../looping_file_cast_agent.h                 |   5 +
- cast/standalone_sender/main.cc                |  21 +-
- cast/standalone_sender/screen_capturer.cc     | 585 +++++++++++
+ cast/standalone_sender/main.cc                |  53 +-
+ cast/standalone_sender/screen_capturer.cc     | 599 +++++++++++
  cast/standalone_sender/screen_capturer.h      | 171 +++
- .../standalone_sender/screen_mirror_sender.cc | 441 ++++++++
+ .../standalone_sender/screen_mirror_sender.cc | 446 ++++++++
  cast/standalone_sender/screen_mirror_sender.h | 133 +++
- 22 files changed, 4728 insertions(+), 7 deletions(-)
+ discovery/BUILD.gn                            |   1 +
+ docs/adr/0001-native-castbridge-backend.md    | 159 +++
+ platform/BUILD.gn                             |   1 +
+ .../socket_handle_waiter_posix_unittest.cc    |   3 +-
+ 28 files changed, 5036 insertions(+), 11 deletions(-)
  create mode 100644 cast/standalone_sender/audio_capturer.cc
  create mode 100644 cast/standalone_sender/audio_capturer.h
  create mode 100644 cast/standalone_sender/ext-foreign-toplevel-list-v1-client.h
@@ -58,7 +50,40 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  create mode 100644 cast/standalone_sender/screen_capturer.h
  create mode 100644 cast/standalone_sender/screen_mirror_sender.cc
  create mode 100644 cast/standalone_sender/screen_mirror_sender.h
+ create mode 100644 docs/adr/0001-native-castbridge-backend.md
 
+diff --git a/BUILD.gn b/BUILD.gn
+index 02206ac8..7c41e6d8 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -65,6 +65,7 @@ group("gn_all") {
+     if (!build_with_chromium) {
+       deps += [
+         "cast/standalone_sender:cast_sender",
++        "cast/castbridge:castbridge",
+         "osp:osp_demo",
+         "third_party/protobuf:protoc($host_toolchain)",
+         "third_party/zlib",
+diff --git a/cast/common/BUILD.gn b/cast/common/BUILD.gn
+index cca52ce6..b6c69ad8 100644
+--- a/cast/common/BUILD.gn
++++ b/cast/common/BUILD.gn
+@@ -13,6 +13,7 @@ config("certificate_config") {
+   visibility += [
+     "../standalone_receiver:cast_receiver",
+     "../standalone_sender:cast_sender",
++    "../castbridge:*",
+   ]
+   defines = []
+ }
+@@ -55,6 +56,7 @@ openscreen_source_set("certificate_boringssl") {
+     "../..:openscreen_unittests",
+     "../standalone_receiver:cast_receiver",
+     "../standalone_sender:cast_sender",
++    "../castbridge:*",
+     "../test:*",
+     "//components/media_router/common/providers/cast/channel:*",
+   ]
 diff --git a/cast/standalone_sender/BUILD.gn b/cast/standalone_sender/BUILD.gn
 index 58f65578..d9e518c1 100644
 --- a/cast/standalone_sender/BUILD.gn
@@ -104,14 +129,16 @@ index 58f65578..d9e518c1 100644
        if (have_libaom) {
 diff --git a/cast/standalone_sender/audio_capturer.cc b/cast/standalone_sender/audio_capturer.cc
 new file mode 100644
-index 00000000..26e33f48
+index 00000000..998617fe
 --- /dev/null
 +++ b/cast/standalone_sender/audio_capturer.cc
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,417 @@
 +// Copyright 2026. BSD-style license.
 +
 +#include "cast/standalone_sender/audio_capturer.h"
 +
++#include <algorithm>
++#include <cctype>
 +#include <cstdint>
 +#include <cstdio>
 +#include <cstdlib>
@@ -207,6 +234,24 @@ index 00000000..26e33f48
 +  pw_stream_queue_buffer(self->stream_, b);
 +}
 +
++static std::string ToLower(const char* s) {
++  std::string out(s ? s : "");
++  std::transform(out.begin(), out.end(), out.begin(),
++                 [](unsigned char c) { return std::tolower(c); });
++  return out;
++}
++
++// True if `app` (a lowercased application name/binary) matches `target` (also
++// lowercased): equal, or one is a prefix of the other (e.g. "librewolf" vs
++// "librewolf-bin"). Empty inputs never match.
++static bool AppMatches(const std::string& target, const std::string& app) {
++  if (target.empty() || app.empty()) {
++    return false;
++  }
++  return app == target || app.rfind(target, 0) == 0 ||
++         target.rfind(app, 0) == 0;
++}
++
 +// True if `pid` is one of the target PIDs or a descendant of one (walk the
 +// parent chain up to init). Bounded depth guards against cycles.
 +static bool IsPidTargeted(const std::set<int>& targets, int pid) {
@@ -228,20 +273,28 @@ index 00000000..26e33f48
 +  if (!props || !type) {
 +    return;
 +  }
-+  // Record Client objects' PIDs: app audio nodes often carry the PID only on
-+  // their owning Client (looked up via client.id). At the registry/global level
-+  // the reliable key is `pipewire.sec.pid` (the connecting process, set by the
-+  // server); `application.process.id` lives only in the bound object's info.
++  // Record Client objects' PID + app identity: app audio nodes often carry
++  // these only on their owning Client (looked up via client.id). Prefer
++  // `application.process.id` (the actual app PID, e.g. the browser) over
++  // `pipewire.sec.pid` — the latter is the *connecting* process, which for apps
++  // launched via a wrapper/portal is a launcher unrelated to the window PID.
 +  if (std::string(type) == PW_TYPE_INTERFACE_Client) {
-+    const char* p = spa_dict_lookup(props, PW_KEY_SEC_PID);
++    const char* p = spa_dict_lookup(props, PW_KEY_APP_PROCESS_ID);
 +    if (!p) {
-+      p = spa_dict_lookup(props, PW_KEY_APP_PROCESS_ID);
++      p = spa_dict_lookup(props, PW_KEY_SEC_PID);
++    }
++    const char* app = spa_dict_lookup(props, PW_KEY_APP_PROCESS_BINARY);
++    if (!app) {
++      app = spa_dict_lookup(props, PW_KEY_APP_NAME);
 +    }
 +    if (p) {
 +      self->client_pids_[id] = std::atoi(p);
-+      if (self->target_serial_ == 0) {
-+        self->TryMatchPendingNodes();  // a pending node may resolve now
-+      }
++    }
++    if (app) {
++      self->client_apps_[id] = ToLower(app);
++    }
++    if (self->target_serial_ == 0 && (p || app)) {
++      self->TryMatchPendingNodes();  // a pending node may resolve now
 +    }
 +    return;
 +  }
@@ -261,8 +314,16 @@ index 00000000..26e33f48
 +  cand.serial = static_cast<uint32_t>(std::strtoul(serial_str, nullptr, 10));
 +  if (const char* pid_str = spa_dict_lookup(props, PW_KEY_APP_PROCESS_ID)) {
 +    cand.own_pid = std::atoi(pid_str);
-+  } else if (const char* cid = spa_dict_lookup(props, PW_KEY_CLIENT_ID)) {
++  }
++  // Always remember the owning client: even when the node carries its own PID,
++  // the app identity (for name matching) may live only on the Client object.
++  if (const char* cid = spa_dict_lookup(props, PW_KEY_CLIENT_ID)) {
 +    cand.client_id = static_cast<uint32_t>(std::strtoul(cid, nullptr, 10));
++  }
++  if (const char* app = spa_dict_lookup(props, PW_KEY_APP_PROCESS_BINARY)) {
++    cand.app = ToLower(app);
++  } else if (const char* an = spa_dict_lookup(props, PW_KEY_APP_NAME)) {
++    cand.app = ToLower(an);
 +  }
 +  self->candidate_nodes_[id] = cand;
 +  self->TryMatchPendingNodes();
@@ -274,17 +335,30 @@ index 00000000..26e33f48
 +  }
 +  for (const auto& [node_id, cand] : candidate_nodes_) {
 +    int pid = cand.own_pid;
-+    if (pid <= 0 && cand.client_id != 0) {
-+      const auto it = client_pids_.find(cand.client_id);
-+      if (it != client_pids_.end()) {
-+        pid = it->second;
++    std::string app = cand.app;
++    if ((pid <= 0 || app.empty()) && cand.client_id != 0) {
++      if (pid <= 0) {
++        const auto it = client_pids_.find(cand.client_id);
++        if (it != client_pids_.end()) {
++          pid = it->second;
++        }
++      }
++      if (app.empty()) {
++        const auto it = client_apps_.find(cand.client_id);
++        if (it != client_apps_.end()) {
++          app = it->second;
++        }
 +      }
 +    }
-+    if (pid > 0 && IsPidTargeted(target_pids_, pid)) {
++    const bool pid_hit = pid > 0 && IsPidTargeted(target_pids_, pid);
++    const bool name_hit = AppMatches(target_app_, app);
++    if (pid_hit || name_hit) {
 +      target_serial_ = cand.serial;
 +      target_node_id_ = node_id;
 +      OSP_LOG_INFO << "AudioCapturer: tapping app audio (pid " << pid
-+                   << ", serial " << target_serial_ << ")";
++                   << ", app '" << app << "', match "
++                   << (pid_hit ? "pid" : "name") << ", serial "
++                   << target_serial_ << ")";
 +      ConnectStream();
 +      return;
 +    }
@@ -295,6 +369,7 @@ index 00000000..26e33f48
 +  auto* self = static_cast<AudioCapturer*>(data);
 +  self->candidate_nodes_.erase(id);
 +  self->client_pids_.erase(id);
++  self->client_apps_.erase(id);
 +  if (id == self->target_node_id_ && self->target_node_id_ != 0) {
 +    OSP_LOG_INFO << "AudioCapturer: tapped app node gone; awaiting next";
 +    self->DestroyStream();
@@ -313,8 +388,10 @@ index 00000000..26e33f48
 +
 +bool AudioCapturer::StartForPids(int channels, int sample_rate,
 +                                 const std::set<int>& pids,
++                                 const std::string& app,
 +                                 FrameCallback on_audio) {
 +  target_pids_ = pids;
++  target_app_ = ToLower(app.c_str());
 +  return StartInternal(channels, sample_rate, std::move(on_audio));
 +}
 +
@@ -332,7 +409,7 @@ index 00000000..26e33f48
 +    return false;
 +  }
 +
-+  if (target_pids_.empty()) {
++  if (target_pids_.empty() && target_app_.empty()) {
 +    // System mix: connect the sink-monitor stream immediately.
 +    if (!ConnectStream()) {
 +      Stop();
@@ -369,7 +446,7 @@ index 00000000..26e33f48
 +    return false;
 +  }
 +  running_ = true;
-+  if (target_pids_.empty()) {
++  if (target_pids_.empty() && target_app_.empty()) {
 +    OSP_LOG_INFO << "AudioCapturer: capturing default sink monitor @ "
 +                 << sample_rate << " Hz, " << channels << " ch";
 +  } else {
@@ -386,7 +463,7 @@ index 00000000..26e33f48
 +                sample_rate_);
 +
 +  pw_properties* props = nullptr;
-+  if (target_pids_.empty()) {
++  if (target_pids_.empty() && target_app_.empty()) {
 +    // STREAM_CAPTURE_SINK records the monitor of the default sink (everything).
 +    props = pw_properties_new(
 +        PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Capture",
@@ -475,10 +552,10 @@ index 00000000..26e33f48
 +}  // namespace openscreen::cast
 diff --git a/cast/standalone_sender/audio_capturer.h b/cast/standalone_sender/audio_capturer.h
 new file mode 100644
-index 00000000..fe38353b
+index 00000000..cf8b70e4
 --- /dev/null
 +++ b/cast/standalone_sender/audio_capturer.h
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,129 @@
 +// Copyright 2026. BSD-style license.
 +//
 +// AudioCapturer: a minimal PipeWire client that delivers interleaved 32-bit
@@ -503,6 +580,7 @@ index 00000000..fe38353b
 +#include <functional>
 +#include <map>
 +#include <set>
++#include <string>
 +
 +struct pw_thread_loop;
 +struct pw_stream;
@@ -537,8 +615,11 @@ index 00000000..fe38353b
 +  // non-invasive (the app keeps playing on its own sinks). If no matching node
 +  // exists yet, the capturer waits for one to appear (the consumer should fill
 +  // silence meanwhile). Returns false only if PipeWire itself is unavailable.
++  // `pids` taps the app by PID (and descendants); `app` additionally matches the
++  // node by application name / binary (case-insensitive), for apps whose node
++  // reports a launcher PID. Either may be empty; at least one should be set.
 +  bool StartForPids(int channels, int sample_rate, const std::set<int>& pids,
-+                    FrameCallback on_audio);
++                    const std::string& app, FrameCallback on_audio);
 +  void Stop();
 +
 +  // PipeWire trampolines (public so the file-scope event tables can name them);
@@ -568,8 +649,11 @@ index 00000000..fe38353b
 +  int sample_rate_ = 0;
 +  bool running_ = false;
 +
-+  // Per-app mode state (empty `target_pids_` => system-mix mode).
++  // Per-app mode state (empty `target_pids_` AND empty `target_app_` => system
++  // mix mode).
 +  std::set<int> target_pids_;
++  // Lowercased app identity (application name or binary) to match nodes by name.
++  std::string target_app_;
 +  pw_context* context_ = nullptr;
 +  pw_core* core_ = nullptr;
 +  pw_registry* registry_ = nullptr;
@@ -582,13 +666,18 @@ index 00000000..fe38353b
 +  // carry application.process.id themselves (e.g. mpv); the PID lives on their
 +  // Client object, looked up via the node's client.id.
 +  std::map<uint32_t, int> client_pids_;
++  // PipeWire Client registry id -> lowercased app identity (application name or
++  // binary), used for name-based matching when the PID doesn't line up.
++  std::map<uint32_t, std::string> client_apps_;
 +  // Candidate Stream/Output/Audio nodes not yet matched (registry id -> info).
 +  // `own_pid` is the node's own application.process.id (0 if absent → resolve
-+  // via `client_id`).
++  // via `client_id`); `app` is its lowercased app identity (may be empty →
++  // resolve via the owning Client).
 +  struct NodeCandidate {
 +    uint32_t serial;
 +    uint32_t client_id;
 +    int own_pid;
++    std::string app;
 +  };
 +  std::map<uint32_t, NodeCandidate> candidate_nodes_;
 +};
@@ -597,10 +686,10 @@ index 00000000..fe38353b
 +
 +#endif  // CAST_STANDALONE_SENDER_AUDIO_CAPTURER_H_
 diff --git a/cast/standalone_sender/connection_settings.h b/cast/standalone_sender/connection_settings.h
-index a4078ce3..9c4d0585 100644
+index a4078ce3..14626845 100644
 --- a/cast/standalone_sender/connection_settings.h
 +++ b/cast/standalone_sender/connection_settings.h
-@@ -49,6 +49,10 @@ struct ConnectionSettings {
+@@ -49,6 +49,15 @@ struct ConnectionSettings {
  
    // Whether input event API should be enabled for this session.
    bool enable_input_events = false;
@@ -608,6 +697,11 @@ index a4078ce3..9c4d0585 100644
 +  // For window mirroring: capture only the audio of this process (and its
 +  // descendants) instead of the whole system mix. 0 = system mix (default).
 +  int audio_target_pid = 0;
++
++  // For window mirroring: also match the app's audio node by application name /
++  // binary (case-insensitive). Catches apps (e.g. browsers) whose PipeWire node
++  // resolves to a launcher PID via pipewire.sec.pid rather than the window PID.
++  std::string audio_target_app;
  };
  
  }  // namespace openscreen::cast
@@ -3514,10 +3608,20 @@ index 00000000..d197f8af
 +</protocol>
 \ No newline at end of file
 diff --git a/cast/standalone_sender/looping_file_cast_agent.cc b/cast/standalone_sender/looping_file_cast_agent.cc
-index f77a8c49..6b6f764e 100644
+index f77a8c49..fa965219 100644
 --- a/cast/standalone_sender/looping_file_cast_agent.cc
 +++ b/cast/standalone_sender/looping_file_cast_agent.cc
-@@ -27,6 +27,13 @@ namespace {
+@@ -4,6 +4,9 @@
+ 
+ #include "cast/standalone_sender/looping_file_cast_agent.h"
+ 
++#include <unistd.h>
++
++#include <cstdlib>
+ #include <optional>
+ #include <string>
+ #include <utility>
+@@ -27,6 +30,31 @@ namespace {
  
  using DeviceMediaPolicy = SenderSocketFactory::DeviceMediaPolicy;
  
@@ -3528,10 +3632,28 @@ index f77a8c49..6b6f764e 100644
 +         path == "window" || path.rfind("window:", 0) == 0;
 +}
 +
++// Report a machine-readable start outcome to a parent that spawned us with a
++// status pipe (castbridge sets CASTBRIDGE_STATUS_FD). A no-op for standalone
++// CLI use. `token` is "streaming" (session negotiated) or "failed". This lets
++// the parent detect success without scraping the human-facing log.
++void ReportMirrorStatus(const char* token) {
++  const char* fd_str = std::getenv("CASTBRIDGE_STATUS_FD");
++  if (!fd_str || !*fd_str) {
++    return;
++  }
++  const int fd = std::atoi(fd_str);
++  if (fd <= 0) {
++    return;
++  }
++  const std::string line = std::string(token) + "\n";
++  ssize_t written = write(fd, line.data(), line.size());
++  (void)written;  // best-effort; parent may have already moved on
++}
++
  }  // namespace
  
  LoopingFileCastAgent::LoopingFileCastAgent(
-@@ -316,6 +323,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+@@ -316,6 +344,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
    // Use default display resolution of 1080P.
    video_config.resolutions.emplace_back(Resolution{1920, 1080});
  
@@ -3550,7 +3672,31 @@ index f77a8c49..6b6f764e 100644
    OSP_VLOG << "Starting session negotiation.";
    Error negotiation_error;
    if (connection_settings_->use_remoting) {
-@@ -416,9 +435,16 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
+@@ -333,6 +373,7 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+   }
+   if (!negotiation_error.ok()) {
+     OSP_LOG_ERROR << "Failed to negotiate a session: " << negotiation_error;
++    ReportMirrorStatus("failed");
+   }
+ }
+ 
+@@ -342,6 +383,7 @@ void LoopingFileCastAgent::OnNegotiated(
+     capture_recommendations::Recommendations capture_recommendations) {
+   if (senders.audio_sender == nullptr || senders.video_sender == nullptr) {
+     OSP_LOG_ERROR << "Missing both audio and video, so exiting...";
++    ReportMirrorStatus("failed");
+     return;
+   }
+ 
+@@ -355,6 +397,7 @@ void LoopingFileCastAgent::OnNegotiated(
+ void LoopingFileCastAgent::OnError(const SenderSession* session,
+                                    const Error& error) {
+   OSP_LOG_ERROR << "SenderSession fatal error: " << error;
++  ReportMirrorStatus("failed");  // no-op if we already reported "streaming"
+   Shutdown();
+ }
+ 
+@@ -416,17 +459,26 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
  
  void LoopingFileCastAgent::StartFileSender() {
    OSP_CHECK(current_negotiation_);
@@ -3569,8 +3715,10 @@ index f77a8c49..6b6f764e 100644
 +  }
    current_negotiation_.reset();
    is_ready_for_remoting_ = false;
++  ReportMirrorStatus("streaming");  // session negotiated; sender is now running
  }
-@@ -427,6 +453,7 @@ void LoopingFileCastAgent::Shutdown() {
+ 
+ void LoopingFileCastAgent::Shutdown() {
    TRACE_DEFAULT_SCOPED(TraceCategory::kStandaloneSender);
  
    file_sender_.reset();
@@ -3602,10 +3750,59 @@ index d391bf47..58a9ed1e 100644
    std::unique_ptr<RemotingSender> remoting_sender_;
  
 diff --git a/cast/standalone_sender/main.cc b/cast/standalone_sender/main.cc
-index d1716dc6..cd20b694 100644
+index d1716dc6..d67a41a4 100644
 --- a/cast/standalone_sender/main.cc
 +++ b/cast/standalone_sender/main.cc
-@@ -121,8 +121,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
+@@ -42,11 +42,11 @@ namespace {
+ 
+ void LogUsage(const char* argv0) {
+   static constexpr char kTemplate[] = R"(
+-usage: {} <options> network_interface media_file
++usage: {} <options> network_interface target
+ 
+ or
+ 
+-usage: {} <options> addr[:port] media_file
++usage: {} <options> addr[:port] target
+ 
+    The first form runs this application in discovery+interactive mode. It will
+    scan for Cast Receivers on the LAN reachable from the given network
+@@ -57,13 +57,33 @@ usage: {} <options> addr[:port] media_file
+    discover Cast Receivers, and instead connect directly to the Cast Receiver at
+    addr:[port] (e.g., 192.168.1.22, 192.168.1.22:%d or [::1]:%d).
+ 
++   target is one of:
++     a media file path                  stream a file (the default mode);
++     screen                             mirror the first monitor (output);
++     screen:<output>                    mirror a specific output (e.g. eDP-1);
++     window                             mirror the active window;
++     window:<app-id|title>              mirror a window matched by app-id/title;
++     window:addr=<hex>                  mirror a window by Hyprland address.
++
+ options:
+     -a, --android-hack:
+           Use the wrong RTP payload types, for compatibility with older Android
+           TV receivers. See https://crbug.com/631828.
+ 
++    -A, --audio-pid=PID
++          Capture audio from the PipeWire output of the process with this PID
++          instead of the default sink. Useful when mirroring a window so only
++          that application's audio is streamed.
++
++    -N, --audio-app=NAME
++          Also match the app's audio node by application name / binary
++          (case-insensitive), in addition to --audio-pid. Needed for apps (e.g.
++          browsers) whose PipeWire node reports a launcher PID rather than the
++          window PID.
++
+     -c, --codec: Specifies the video codec to be used. Can be one of:
+-                 vp8, vp9, av1. Defaults to vp8 if not specified.
++                 vp8, vp9, av1, h264. Defaults to vp8 if not specified.
++                 (h264 is hardware-encoded via VAAPI; used for mirroring.)
+ 
+     -d, --developer-certificate=path-to-cert
+           Specifies the path to a self-signed developer certificate that will
+@@ -121,8 +141,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
  
  std::optional<VideoCodec> ParseCodec(std::string_view arg) {
    // We can only support codecs that have a corresponding encoder library.
@@ -3619,28 +3816,30 @@ index d1716dc6..cd20b694 100644
  
    const auto parsed = StringToVideoCodec(arg);
    if (!parsed || std::ranges::find(kSupportedCodecs, parsed.value()) ==
-@@ -147,6 +150,7 @@ struct Arguments {
+@@ -147,6 +170,8 @@ struct Arguments {
    bool use_remoting = false;
    bool enable_input_events = false;
    bool is_verbose = false;
 +  int audio_target_pid = 0;
++  std::string audio_target_app;
    VideoCodec codec = VideoCodec::kVp8;
    std::unique_ptr<TraceLoggingPlatform> trace_logger;
    bool enable_dscp = true;
-@@ -163,6 +167,7 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+@@ -163,6 +188,8 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
        {"developer-certificate", required_argument, nullptr, 'd'},
        {"enable-input-events", no_argument, nullptr, 'i'},
        {"help", no_argument, nullptr, 'h'},
 +      {"audio-pid", required_argument, nullptr, 'A'},
++      {"audio-app", required_argument, nullptr, 'N'},
        {"max-bitrate", required_argument, nullptr, 'm'},
        {"no-looping", no_argument, nullptr, 'n'},
        {"disable-dscp", no_argument, nullptr, 'q'},
-@@ -176,12 +181,19 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+@@ -176,12 +203,22 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
  
    Arguments args;
    int ch = -1;
 -  while ((ch = getopt_long(argc, argv, "ac:d:him:nqrtvP", kArgumentOptions,
-+  while ((ch = getopt_long(argc, argv, "aA:c:d:him:nqrtvP", kArgumentOptions,
++  while ((ch = getopt_long(argc, argv, "aA:c:d:him:nN:qrtvP", kArgumentOptions,
                             nullptr)) != -1) {
      switch (ch) {
        case 'a':
@@ -3653,25 +3852,29 @@ index d1716dc6..cd20b694 100644
 +          return std::nullopt;
 +        }
 +        break;
++      case 'N':
++        args.audio_target_app = get_opt::optarg;
++        break;
        case 'm':
          if (!string_parse::ParseAsciiNumber(get_opt::optarg,
                                              args.max_bitrate) ||
-@@ -304,7 +316,8 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+@@ -304,7 +341,9 @@ int StandaloneSenderMain(int argc, char* argv[]) {
                           .should_loop_video = args->should_loop_video,
                           .codec = args->codec,
                           .enable_dscp = args->enable_dscp,
 -                         .enable_input_events = args->enable_input_events});
 +                         .enable_input_events = args->enable_input_events,
-+                         .audio_target_pid = args->audio_target_pid});
++                         .audio_target_pid = args->audio_target_pid,
++                         .audio_target_app = args->audio_target_app});
    });
  
    // Run the event loop until SIGINT (e.g., CTRL-C at the console) or
 diff --git a/cast/standalone_sender/screen_capturer.cc b/cast/standalone_sender/screen_capturer.cc
 new file mode 100644
-index 00000000..5aa891c9
+index 00000000..da0c6026
 --- /dev/null
 +++ b/cast/standalone_sender/screen_capturer.cc
-@@ -0,0 +1,585 @@
+@@ -0,0 +1,599 @@
 +// Copyright 2026. BSD-style license.
 +
 +#include "cast/standalone_sender/screen_capturer.h"
@@ -4001,8 +4204,22 @@ index 00000000..5aa891c9
 +        return;
 +      }
 +    }
++    // An explicit address that we cannot map must NOT silently fall back to an
++    // arbitrary window. castbridge drives mirroring purely by address (it clears
++    // the selector), having already resolved and validated a specific window via
++    // window_resolver; capturing a different window would be a silent divergence.
++    // Fail loudly here (chosen_toplevel_ stays null -> Start() errors out) unless
++    // the caller also supplied a selector to fall back on.
++    if (selector_.empty()) {
++      OSP_LOG_WARN << "ScreenCapturer: no toplevel mapped to address "
++                   << target_address_
++                   << " and no selector given; refusing to pick an arbitrary "
++                      "window";
++      return;
++    }
 +    OSP_LOG_WARN << "ScreenCapturer: no toplevel mapped to address "
-+                 << target_address_ << "; falling back to selector";
++                 << target_address_ << "; falling back to selector '"
++                 << selector_ << "'";
 +  }
 +  if (selector_.empty()) {
 +    chosen_toplevel_ = toplevels_.front().handle;
@@ -4436,10 +4653,10 @@ index 00000000..9be88e0b
 +#endif  // CAST_STANDALONE_SENDER_SCREEN_CAPTURER_H_
 diff --git a/cast/standalone_sender/screen_mirror_sender.cc b/cast/standalone_sender/screen_mirror_sender.cc
 new file mode 100644
-index 00000000..dca20b31
+index 00000000..e8e43fd3
 --- /dev/null
 +++ b/cast/standalone_sender/screen_mirror_sender.cc
-@@ -0,0 +1,441 @@
+@@ -0,0 +1,446 @@
 +// Copyright 2026. BSD-style license.
 +
 +#include "cast/standalone_sender/screen_mirror_sender.h"
@@ -4566,17 +4783,22 @@ index 00000000..dca20b31
 +  // Audio. Window mirror with a target PID → capture only that app's audio;
 +  // otherwise the whole desktop (default sink monitor). Either way fall back to
 +  // a silent track (the receiver expects an audio stream) if capture can't run.
-+  per_app_audio_ = settings_.audio_target_pid > 0;
++  per_app_audio_ =
++      settings_.audio_target_pid > 0 || !settings_.audio_target_app.empty();
 +  auto on_audio = [this](const float* s, int n, int ch) {
 +    OnCapturedAudio(s, n, ch);
 +  };
 +  if (per_app_audio_) {
-+    const std::set<int> pids{settings_.audio_target_pid};
++    std::set<int> pids;
++    if (settings_.audio_target_pid > 0) {
++      pids.insert(settings_.audio_target_pid);
++    }
 +    real_audio_active_ = audio_capturer_.StartForPids(
 +        audio_encoder_.num_channels(), audio_encoder_.sample_rate(), pids,
-+        on_audio);
++        settings_.audio_target_app, on_audio);
 +    OSP_LOG_INFO << "ScreenMirrorSender: per-app audio for pid "
-+                 << settings_.audio_target_pid;
++                 << settings_.audio_target_pid << " app '"
++                 << settings_.audio_target_app << "'";
 +    // Per-app audio is intermittent (silent app, or stream not yet present), so
 +    // always run the gap-filler to keep the audio track continuous.
 +    audio_task_.Schedule([this] { FillAudioGap(); }, Alarm::kImmediately);
@@ -5020,6 +5242,209 @@ index 00000000..ddd24771
 +}  // namespace openscreen::cast
 +
 +#endif  // CAST_STANDALONE_SENDER_SCREEN_MIRROR_SENDER_H_
+diff --git a/discovery/BUILD.gn b/discovery/BUILD.gn
+index eb5ed41b..6781c28e 100644
+--- a/discovery/BUILD.gn
++++ b/discovery/BUILD.gn
+@@ -87,6 +87,7 @@ openscreen_source_set("dnssd") {
+     "../cast/common:discovery_e2e_test",
+     "../cast/standalone_receiver:*",
+     "../cast/standalone_sender:*",
++    "../cast/castbridge:*",
+     "../osp/impl",
+   ]
+   public = []
+diff --git a/docs/adr/0001-native-castbridge-backend.md b/docs/adr/0001-native-castbridge-backend.md
+new file mode 100644
+index 00000000..fbcecca3
+--- /dev/null
++++ b/docs/adr/0001-native-castbridge-backend.md
+@@ -0,0 +1,159 @@
++# ADR 0001: Native castbridge Backend for Firefox Cast
++
++## Status
++
++Accepted
++
++## Context
++
++This fork adds a native Linux backend for a Firefox Cast extension on top of
++Open Screen. The backend has two linked pieces:
++
++- `cast/castbridge`: a native-messaging relay plus daemon that handles browser
++  IPC, device discovery, media control, YouTube control, and mirroring requests.
++- `cast/standalone_sender`: the native Cast Streaming sender used for
++  Wayland/Hyprland screen and window mirroring with PipeWire audio and VAAPI
++  H.264.
++
++The fork is built standalone on Linux with system libraries (`use_sysroot=false`)
++instead of Chromium's sysroot. This keeps the integration practical for local
++desktop use, but it also means the fork owns product-level concerns that upstream
++Open Screen examples normally do not: native-messaging framing, daemon lifecycle,
++AF_UNIX IPC, subprocess management, receiver selection, and desktop capture
++dependencies.
++
++An audit of the current fork found that `castbridge` and `cast_sender` build and
++link successfully, and that the daemon can discover a real Cast receiver on the
++local network. The same audit also found remaining product-readiness gaps:
++
++- IPC responses can be lost for one-shot clients that write a request and close
++  the connection immediately.
++- The daemon shutdown path uses a signal handler and a detached stop thread that
++  need stricter lifecycle handling.
++- Both native binaries are still declared as `testonly`.
++- `cast_sender --help` does not document the new H.264, screen/window, and
++  `--audio-pid` behavior completely.
++- `castbridge` has no dedicated tests.
++- The media and YouTube Cast clients duplicate channel/session setup logic.
++
++A follow-up audit (answering "were the fork's additions necessary or duplicated?")
++confirmed this decision and added three findings:
++
++- **No upstream duplication.** None of the castbridge components duplicate Open
++  Screen. Discovery/media controllers are thin wrappers over existing APIs; the
++  media client, MDX handshake, Lounge HTTP layer, native-messaging relay and IPC
++  daemon have no upstream equivalent. The additions were necessary.
++- **The two Cast clients were the one real internal duplication.** `media_receiver_client`
++  and `youtube_cast_client` shared ~150 lines of channel setup (socket factory,
++  router, namespace handler, launch/heartbeat handshake, RECEIVER_STATUS, volume,
++  teardown). This has been extracted into a shared `CastChannelClient` base.
++- **`window_resolver` is not a removable duplicate.** It overlaps with
++  `ScreenCapturer`'s app-id/title matching, but it also resolves the window PID
++  (required for `--audio-pid`, which ScreenCapturer cannot provide) and produces
++  the canonical Hyprland *address* the daemon drives the sender by. The benign
++  overlap is documented; ScreenCapturer now refuses to capture an arbitrary
++  window when an explicit address is unmapped (avoids silent daemon↔sender
++  divergence).
++
++## Decision
++
++Keep `castbridge` as the fork's native backend for the Firefox extension, and
++keep `cast_sender` as the native mirroring implementation that `castbridge`
++orchestrates.
++
++The browser extension should continue to speak a small JSON command protocol to
++the native backend. It should not own Open Screen objects, Cast channel state,
++desktop capture, or long-running subprocess lifecycle. Those responsibilities
++belong in the native backend because they depend on Open Screen threading rules,
++Linux desktop APIs, and receiver-specific Cast behavior.
++
++The native backend remains fork-local and Linux-focused. It is not designed as an
++upstream Open Screen API surface until the daemon lifecycle, IPC contract, tests,
++and build target classification are hardened.
++
++## Consequences
++
++This decision makes the fork coherent as a local product path: Open Screen
++continues to provide Cast discovery, Cast channel, and streaming primitives,
++while the fork adds a desktop-oriented backend around them.
++
++It also makes `castbridge` a product surface, not just an experiment. The daemon
++must be treated as responsible for:
++
++- stable JSON request/response semantics;
++- safe behavior when clients disconnect early;
++- clean signal and shutdown handling;
++- predictable session state for media, YouTube, and mirroring;
++- subprocess lifecycle for `cast_sender`, `curl`, and Hyprland tools;
++- test coverage for IPC and controller behavior.
++
++These product-readiness gaps have since been resolved (see Follow-up), so this ADR
++is now `Accepted`.
++
++## Validation
++
++The audit established the following current evidence:
++
++- `autoninja -C out/Default cast_sender castbridge` completed successfully.
++- `castbridge --daemon` started discovery on the active wireless interface.
++- The daemon discovered a Cast receiver named `43PUS9235/12` at
++  `192.168.1.228`.
++- JSON IPC responses work when the client keeps the AF_UNIX connection open.
++- Some one-shot IPC clients receive zero bytes if they close immediately after
++  writing a request. (Fixed since — see Follow-up.)
++- `openscreen_unittests` were not completed during the audit.
++
++## Follow-up
++
++All pre-`Accepted` gaps are resolved (see "Done" below). The native backend is now
++treated as a product surface with stable IPC semantics, safe shutdown, and tests.
++
++Remaining work is feature/product roadmap, tracked on the GitHub Project board, not
++blockers for this ADR:
++- AMO publishing of the extension;
++- screen mirror via xdg-desktop-portal + PipeWire (beyond Hyprland);
++- window mirror beyond Hyprland.
++
++Known testing boundary (accepted): the media/youtube Cast clients' live session
++behavior (TLS channel + receiver) — including the YouTube Lounge event-channel status
++poll — is covered by integration testing, not unit tests; the unit tests cover the
++controllers' no-session paths and the full mirror lifecycle.
++
++Done since this ADR was first drafted:
++
++- **[done] Controller-level tests.** `mirror_controller` is covered end-to-end via a
++  stubbed sender (`castbridge_unittests`); `media_controller`/`youtube_controller`
++  no-session paths are covered with a `FakeTaskRunner` (`castbridge_controller_unittests`).
++
++- **[done] `cast_sender --help` matches the CLI.** Added `h264` to `-c`, documented
++  `-A, --audio-pid`, and documented the positional target forms
++  (`screen[:output]`, `window[:<app-id|title>]`, `window:addr=<hex>`).
++- **[kept, justified] `testonly` on the native binaries.** Not removed: it follows
++  the repo convention for standalone executables (`cast_sender`, `cast_receiver`,
++  `osp_demo` are all `testonly`) — they are standalone-build tools, not shipped
++  library/production artifacts. `castbridge`/`cast_sender` are leaves of the
++  `testonly` `gn_all` and nothing links them as a library, so `testonly` is the
++  correct classification.
++
++- **[done] Hardened the daemon shutdown lifecycle.** The signal handler was
++  already async-signal-safe; the real issue — a use-after-free if a signal hit
++  during teardown — is fixed by making the global `IpcServer*` atomic and
++  clearing it right after `Run()` returns so the handler no-ops during shutdown.
++- **[done] Fixed IPC request drop / response loss for one-shot clients.** The
++  poll loop closed a connection on POLLHUP/EOF before dispatching the buffered
++  request; half-closed clients also lost late (async) responses. It now dispatches
++  buffered requests before teardown and keeps a half-closed connection open to
++  deliver the reply. Covered by `castbridge_unittests` (`ipc_server_unittest.cc`):
++  round-trip, half-close async response, dispatch-on-immediate-close, pipelining,
++  fragmented frames.
++- **[done] Reduced Cast-client duplication** by extracting `CastChannelClient`
++  (`cast/castbridge/cast_channel_client.{h,cc}`); `media_receiver_client` and
++  `youtube_cast_client` now derive from it.
++- **[done] Hardened mirror lifecycle.** `mirror_controller` no longer scrapes the
++  sender log for "Streaming to "; `cast_sender` reports "streaming"/"failed" on a
++  dedicated status pipe (`CASTBRIDGE_STATUS_FD`). The sender is spawned in its own
++  process group and signalled as a group on stop.
++- **[confirmed] Subprocess mirroring kept.** Spawning `cast_sender` (rather than
++  linking it in-process) is retained deliberately: it isolates encoder/VAAPI
++  crashes and avoids the libcurl↔boringssl symbol clash. In-process linking
++  remains a documented, non-urgent alternative.
+diff --git a/platform/BUILD.gn b/platform/BUILD.gn
+index c97ebcc4..8c1d3de3 100644
+--- a/platform/BUILD.gn
++++ b/platform/BUILD.gn
+@@ -105,6 +105,7 @@ if (!is_ios) {
+       "../cast/common:discovery_e2e_test",
+       "../cast/standalone_receiver:cast_receiver",
+       "../cast/standalone_sender:cast_sender",
++      "../cast/castbridge:*",
+       "../cast/test:e2e_tests",
+       "../osp:osp_demo",
+       "../test:test_main",
+diff --git a/platform/impl/socket_handle_waiter_posix_unittest.cc b/platform/impl/socket_handle_waiter_posix_unittest.cc
+index 7537bb3b..43376324 100644
+--- a/platform/impl/socket_handle_waiter_posix_unittest.cc
++++ b/platform/impl/socket_handle_waiter_posix_unittest.cc
+@@ -390,7 +390,8 @@ TEST_F(SocketHandleWaiterPosixInstanceTest,
+   EXPECT_TRUE(result.ok()) << "ProcessHandles returned: " << result;
+ 
+   std::array<uint8_t, 16> drain;
+-  read(pipe_fds[0], drain.data(), drain.size());
++  ssize_t drained = read(pipe_fds[0], drain.data(), drain.size());
++  (void)drained;
+   waiter_.Unsubscribe(&subscriber_, std::cref(read_end_handle));
+   ClosePipe(pipe_fds);
+ }
 -- 
 2.54.0
 
