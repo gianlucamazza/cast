@@ -18,7 +18,7 @@ patch=patches/0001-wayland-h264-cast-streaming-sender.patch
 # verified invariant). A TREE hash, not a commit: the `git am` commit hash varies
 # with the committer date, the tree does not. Generated/verified by
 # regen-patch.sh — do not edit by hand.
-patched=64cf416ab538a3659f51c35978560b9388976a82
+patched=92d1827130d5c6ece5cf554f93a176f1dac9d0b2
 
 # gn args for out/Default (the mirror build needs ffmpeg/opus/vpx; SDL2 is used
 # by the upstream sample sender).
