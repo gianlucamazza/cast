@@ -14,8 +14,11 @@ pin=7675ef66c2f5901d798a3e3f3aae97ca9c96c2f6
 # capture + VAAPI encoder). Applied with `git am` on top of the pin.
 patch=patches/0001-wayland-h264-cast-streaming-sender.patch
 
-# Resulting tree commit when the patch is applied (for verification).
-patched=d031a321c3db1f6bd291e296bec280f3d8c432d4
+# Resulting tree object when the patch is applied, == the fork branch tree (the
+# verified invariant). A TREE hash, not a commit: the `git am` commit hash varies
+# with the committer date, the tree does not. Generated/verified by
+# regen-patch.sh — do not edit by hand.
+patched=64cf416ab538a3659f51c35978560b9388976a82
 
 # gn args for out/Default (the mirror build needs ffmpeg/opus/vpx; SDL2 is used
 # by the upstream sample sender).

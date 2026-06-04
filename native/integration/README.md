@@ -27,8 +27,9 @@ recorded `gn_args`, ending at the same patched tree.
 
 1. verifies the checkout exists, is configured, and carries the mirror patch
    (else points you back at `setup-openscreen.sh`),
-2. copies `native/castbridge/*` into `<fork>/cast/castbridge/`, and adds that
-   copy plus `out/Default/compile_commands.json` to the fork's
+2. symlinks `native/castbridge/` into `<fork>/cast/castbridge` (single source of
+   truth — editing through the fork checkout edits this repo directly), and adds
+   that link plus `out/Default/compile_commands.json` to the fork's
    `.git/info/exclude` so they don't show up as untracked,
 3. adds `cast/castbridge:castbridge` to the root `gn_all` group,
 4. grants our target visibility on the few deps that whitelist only
@@ -45,7 +46,7 @@ The resulting binary is `<fork>/out/Default/castbridge` (sibling of
 `build.sh` mutates the fork checkout in two ways. This is expected and is **not**
 meant to be committed to the fork:
 
-- It copies our sources into `<fork>/cast/castbridge/` and writes a generated
+- It symlinks our sources at `<fork>/cast/castbridge` and writes a generated
   compile DB. Both are ignored locally via `.git/info/exclude` (step 2) — we
   never edit the fork's tracked `.gitignore`, which would itself show as a diff.
 - Step 4 edits four tracked files in place (`BUILD.gn`, `discovery/BUILD.gn`,
@@ -67,8 +68,23 @@ The working checkout sits on branch `skill-cast/screen-mirror`, a local alias of
 
 `openscreen.pin` records everything needed to rebuild the checkout: the `fork`
 URL + `fork_branch`, the upstream `pin` commit, the `patch` path, the expected
-`patched` HEAD, and the `gn_args`. To bump openscreen, rebase the fork branch
-onto the new commit, re-cut the patch (`git format-patch`), and update this file.
+`patched` tree, and the `gn_args`.
+
+The **fork branch is the single source of truth** for the sender. The `patch` and
+the `patched` tree hash are **generated artifacts**, not hand-maintained — after
+any change to the sender on the fork branch, regenerate them:
+
+```bash
+bash native/integration/regen-patch.sh
+```
+
+It re-cuts `patches/0001-*.patch` from `pin..fork_branch`, applies it onto the
+pin in a throwaway worktree, and asserts the result is byte-identical to the fork
+branch tree before writing the patch + `patched=`. `setup-openscreen.sh` enforces
+the same invariant on every provision (both strategies), so a drifted patch/pin
+fails loudly instead of silently building a stale tree. To bump the upstream
+`pin`, rebase the fork branch onto the new commit, update `pin`, then run
+`regen-patch.sh`.
 
 ## Configuration
 
