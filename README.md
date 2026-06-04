@@ -66,6 +66,37 @@ bash install/install-host.sh            # wrapper + native-messaging manifest
 
 For a warm discovery cache, optionally enable `install/castbridge.service`.
 
+## Install permanently (LibreWolf)
+
+`about:debugging` only loads the extension *temporarily* — it is dropped when the
+browser restarts. For a permanent install you need an `.xpi`, and Firefox/LibreWolf
+require add-ons to be signed (or signature enforcement disabled). Two options:
+
+**A — unsigned `.xpi`, LibreWolf only.** LibreWolf lets you run unsigned add-ons
+(stock Firefox release does not); the manifest already declares an explicit id, so
+this works:
+
+```bash
+npm run build                                              # -> .web-ext-artifacts/cast-<ver>.zip
+cp .web-ext-artifacts/cast-*.zip .web-ext-artifacts/cast.xpi
+```
+
+1. `about:config` → set `xpinstall.signatures.required` to `false`
+2. `about:addons` → gear ⚙ → **Install Add-on From File…** → pick the `.xpi`
+
+**B — signed `.xpi`, any Firefox/LibreWolf.** Sign through Mozilla (AMO) to get a
+self-distributable `.xpi` that installs without touching `about:config`:
+
+```bash
+AMO_JWT_ISSUER=… AMO_JWT_SECRET=… npm run sign:unlisted    # -> signed .xpi
+```
+
+This is also what `release.yml` does on a `v*` tag, attaching the signed `.xpi` to
+the GitHub release.
+
+Either way you still need the **native host** (`bash install/install-host.sh`),
+otherwise the popup reports `nohost`.
+
 ## Compatibility
 
 | Capability        | Support                                                        |
