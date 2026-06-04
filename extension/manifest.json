@@ -46,7 +46,11 @@
       "js": ["content/detect.js"]
     },
     {
-      "matches": ["*://www.youtube.com/*"],
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://www.youtube-nocookie.com/*"
+      ],
+      "all_frames": true,
       "run_at": "document_idle",
       "js": ["common/errors.js", "content/youtube-button.js"]
     }
