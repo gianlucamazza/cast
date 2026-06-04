@@ -116,6 +116,7 @@ StartResult WaitForStatus(int read_fd, pid_t pid) {
 std::string MirrorController::Launch(const std::string& ip,
                                      const std::string& target,
                                      int audio_pid,
+                                     const std::string& audio_app,
                                      const std::string& mode,
                                      const std::string& label,
                                      const std::string& device) {
@@ -136,6 +137,12 @@ std::string MirrorController::Launch(const std::string& ip,
     pid_str = std::to_string(audio_pid);
     args.push_back("-A");
     args.push_back(pid_str);
+  }
+  // Also match the app's audio node by name (browsers report a launcher PID on
+  // their PipeWire node, so the window PID alone misses their audio).
+  if (!audio_app.empty()) {
+    args.push_back("-N");
+    args.push_back(audio_app);
   }
   args.push_back(endpoint);
   args.push_back(target);
@@ -209,20 +216,21 @@ std::string MirrorController::Launch(const std::string& ip,
 std::string MirrorController::StartWindow(const std::string& ip,
                                           const std::string& address,
                                           int audio_pid,
+                                          const std::string& audio_app,
                                           const std::string& label,
                                           const std::string& device) {
   if (address.empty()) {
     return "could not resolve a window address";
   }
-  return Launch(ip, "window:addr=" + address, audio_pid, "window", label,
-                device);
+  return Launch(ip, "window:addr=" + address, audio_pid, audio_app, "window",
+                label, device);
 }
 
 std::string MirrorController::StartScreen(const std::string& ip,
                                           const std::string& output,
                                           const std::string& device) {
   const std::string target = output.empty() ? "screen" : "screen:" + output;
-  return Launch(ip, target, 0, "output", output.empty() ? "screen" : output,
+  return Launch(ip, target, 0, "", "output", output.empty() ? "screen" : output,
                 device);
 }
 
