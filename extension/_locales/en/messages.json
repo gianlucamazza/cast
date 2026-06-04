@@ -160,5 +160,14 @@
   },
   "ytPickTitle": {
     "message": "Cast to…"
+  },
+  "ytCastingTo": {
+    "message": "Playing on $device$",
+    "placeholders": {
+      "device": { "content": "$1", "example": "Living Room TV" }
+    }
+  },
+  "ytThisTv": {
+    "message": "the TV"
   }
 }

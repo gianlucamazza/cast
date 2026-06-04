@@ -103,8 +103,14 @@ function ensureSelection() {
   if (!devices.length) return;
   if (!selectedId || !devices.some((d) => d.id === selectedId)) {
     selectedId = devices[0].id;
-    browser.storage.local.set({ deviceId: selectedId });
+    persistSelection();
   }
+}
+
+// Persist id + friendly name so the in-page YouTube overlay can label the
+// device ("Playing on <name>") even when the cast is launched from the popup.
+function persistSelection() {
+  browser.storage.local.set({ deviceId: selectedId, deviceName: selectedName() });
 }
 
 function selectedName() {
@@ -114,7 +120,7 @@ function selectedName() {
 
 function selectDevice(id) {
   selectedId = id;
-  browser.storage.local.set({ deviceId: selectedId });
+  persistSelection();
   renderDevices();
   toggleDevices(false);
 }
