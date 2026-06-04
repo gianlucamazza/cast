@@ -25,12 +25,15 @@ namespace castbridge {
 class YouTubeController {
  public:
   using Completion = std::function<void(bool ok, const std::string& error)>;
+  using StatusBroadcast = std::function<void(const YouTubeStatus&)>;
 
   explicit YouTubeController(openscreen::TaskRunner& task_runner);
   ~YouTubeController();
 
   // Fired whenever the active state changes (start / stop / natural end).
   void set_on_change(std::function<void()> cb) { on_change_ = std::move(cb); }
+  // Fired when the parsed playback state changes (PLAYING <-> PAUSED, etc.).
+  void set_on_status(StatusBroadcast cb) { on_status_ = std::move(cb); }
 
   void LoadAsync(std::string ip, std::string video_id, double start_time, Completion done);
   void ControlAsync(std::string cmd, double value, Completion done);
@@ -43,25 +46,48 @@ class YouTubeController {
   bool active() const { return active_.load(); }
   std::string title() const;
 
+  // Thread-safe snapshot of the last parsed playback status.
+  YouTubeStatus Snapshot() const;
+
  private:
   void Enqueue(std::function<void()> job);
   void WorkerLoop();
   void SetActive(bool active);
 
+  // Event-channel polling (runs on its own thread; see youtube_lounge Poll()).
+  void PollLoop();
+  void OnStatusUpdate(const YouTubeStatus& status);
+  std::shared_ptr<YouTubeLounge> SnapshotLounge() const;
+
   openscreen::TaskRunner& task_runner_;
   std::function<void()> on_change_;
+  StatusBroadcast on_status_;
 
   std::unique_ptr<YouTubeCastClient> client_;  // TaskRunner thread only
-  std::unique_ptr<YouTubeLounge> lounge_;      // worker thread only
+  // The Lounge client is created on the worker and read by the poll thread, so
+  // it is a shared_ptr guarded by lounge_mutex_: a poll in flight keeps the
+  // object alive even if the worker resets the member.
+  mutable std::mutex lounge_mutex_;
+  std::shared_ptr<YouTubeLounge> lounge_;
 
   std::atomic<bool> active_{false};
 
-  // Single-worker job queue for all Lounge HTTP work.
+  mutable std::mutex status_mutex_;
+  YouTubeStatus status_;
+
+  // Single-worker job queue for all Lounge HTTP commands.
   std::mutex q_mutex_;
   std::condition_variable q_cv_;
   std::deque<std::function<void()>> queue_;
   bool worker_stop_ = false;
   std::thread worker_;
+
+  // Poll thread + its run/stop signalling.
+  std::mutex poll_mutex_;
+  std::condition_variable poll_cv_;
+  bool poll_active_ = false;  // a session is live; keep polling
+  bool poll_stop_ = false;    // shutting down
+  std::thread poll_thread_;
 };
 
 }  // namespace castbridge

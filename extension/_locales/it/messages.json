@@ -160,5 +160,14 @@
   },
   "ytPickTitle": {
     "message": "Trasmetti a…"
+  },
+  "ytCastingTo": {
+    "message": "In riproduzione su $device$",
+    "placeholders": {
+      "device": { "content": "$1", "example": "TV Salotto" }
+    }
+  },
+  "ytThisTv": {
+    "message": "la TV"
   }
 }

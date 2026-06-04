@@ -5,12 +5,18 @@ const msg = (k) => browser.i18n.getMessage(k) || k;
 
 let devices = [];
 let devicesScanned = false;
+let offline = false; // daemon unreachable (nohost/disconnected)
+
+// True when a reply indicates the daemon isn't reachable (not installed or down).
+function daemonDown(reply) {
+  return !!reply && !reply.ok && reply.error &&
+    (reply.error.code === "nohost" || reply.error.code === "disconnected");
+}
 let selectedId = "";
 let activeTab = null;
 let castability = null;
 let session = { session: "idle", media: null, mirror: null };
 let seeking = false;
-let ytPaused = false;
 let muted = false;
 let lastVolume = 50;
 
@@ -76,9 +82,12 @@ async function init() {
   loadDevices();
   host("status").then((r) => {
     if (r && r.ok) {
+      offline = false;
       session = r.data;
-      render();
+    } else if (daemonDown(r)) {
+      offline = true;
     }
+    render();
   });
 
   ensureSelection();
@@ -92,11 +101,15 @@ function loadDevices() {
   renderDevices();
   return host("devices").then((r) => {
     if (r && r.ok) {
+      offline = false;
       devices = r.data.candidates || [];
       ensureSelection();
+    } else if (daemonDown(r)) {
+      offline = true;
     }
     devicesScanned = true;
     renderDevices();
+    render();
   });
 }
 
@@ -104,8 +117,14 @@ function ensureSelection() {
   if (!devices.length) return;
   if (!selectedId || !devices.some((d) => d.id === selectedId)) {
     selectedId = devices[0].id;
-    browser.storage.local.set({ deviceId: selectedId });
+    persistSelection();
   }
+}
+
+// Persist id + friendly name so the in-page YouTube overlay can label the
+// device ("Playing on <name>") even when the cast is launched from the popup.
+function persistSelection() {
+  browser.storage.local.set({ deviceId: selectedId, deviceName: selectedName() });
 }
 
 function selectedName() {
@@ -115,7 +134,7 @@ function selectedName() {
 
 function selectDevice(id) {
   selectedId = id;
-  browser.storage.local.set({ deviceId: selectedId });
+  persistSelection();
   renderDevices();
   toggleDevices(false);
 }
@@ -158,6 +177,10 @@ function renderDevices() {
     ul.appendChild(li);
   }
   const empty = devices.length === 0;
+  // When the daemon is unreachable, say so explicitly instead of the generic
+  // "no TV found" — it's actionable (install/start the host).
+  $("devices-empty").textContent =
+    offline ? CastErrors.errorMessage("nohost") : msg("noDevicesFound");
   $("devices-scanning").classList.toggle("hidden", devicesScanned);
   $("devices-empty").classList.toggle("hidden", !(devicesScanned && empty));
   ul.classList.toggle("hidden", empty);
@@ -192,15 +215,22 @@ function setPlayPause(paused) {
 
 function renderYouTube(y) {
   $("media-title").textContent = y.title || msg("youtube");
-  // The Lounge API doesn't give us reliable position, so hide the scrubber.
+  // No interactive scrubber for YouTube, but the play/pause state is real now
+  // (pushed from the Lounge event channel).
   $("seek").style.display = "none";
   document.querySelector(".times").style.display = "none";
-  setPlayPause(ytPaused);
+  setPlayPause(y.state === "PAUSED");
 }
 
 function renderIdle() {
   const c = castability;
   const btn = $("cast-video");
+  if (offline) {
+    btn.disabled = true;
+    btn.textContent = msg("castVideo");
+    $("hint").textContent = CastErrors.errorMessage("nohost");
+    return;
+  }
   if (c && c.best && !c.drm) {
     btn.disabled = false;
     btn.textContent = c.best.kind === "site" ? msg("castPageVideo") : msg("castVideo");
@@ -294,21 +324,10 @@ function bind() {
   );
 
   $("playpause").addEventListener("click", async () => {
-    if (session.session === "youtube") {
-      // Lounge gives us no playback state, so this toggle is optimistic: we
-      // assume "playing" after load and flip on each press. Roll back on error.
-      const was = ytPaused;
-      ytPaused = !ytPaused;
-      setPlayPause(ytPaused);
-      const r = await host("media-control", { cmd: ytPaused ? "pause" : "play" });
-      if (!r || !r.ok) {
-        ytPaused = was;
-        setPlayPause(ytPaused);
-        reply(r);
-      }
-      return;
-    }
-    const paused = session.media && session.media.state === "PAUSED";
+    // Real state for both receivers now: YouTube from the Lounge event channel,
+    // the URL receiver from media-status. The daemon push reconciles the button.
+    const sub = session.session === "youtube" ? session.youtube : session.media;
+    const paused = sub && sub.state === "PAUSED";
     const r = await host("media-control", { cmd: paused ? "play" : "pause" });
     if (!r || !r.ok) reply(r);
   });
@@ -316,7 +335,6 @@ function bind() {
   const stopOptimistic = () => {
     // Reflect idle immediately; fire the stop and reconcile shortly after.
     session = { session: "idle", media: null, mirror: null };
-    ytPaused = false;
     render();
     setStatus(msg("statusStopped"));
     host("stop").catch(() => {});
@@ -370,7 +388,12 @@ async function refreshStatus() {
 browser.runtime.onMessage.addListener((m) => {
   if (m && m.type === "cast-event") {
     const ev = m.event;
-    if (ev.type === "media-status") {
+    if (ev.type === "session") {
+      // Authoritative session state (incl. real YouTube play/pause) pushed by
+      // the daemon; render it directly.
+      session = ev.data || { session: "idle", media: null, mirror: null };
+      render();
+    } else if (ev.type === "media-status") {
       // media-status applies to the URL receiver. Don't clobber a YouTube
       // session (which has no status push) on a null/idle frame.
       if (ev.data) {

@@ -16,12 +16,14 @@ const HOST_NAME = "it.gianlucamazza.castbridge";
 
 let port = null;
 let nextId = 1;
+let connected = false; // are we currently talking to the daemon?
 const pending = new Map(); // id -> resolve
 
 function ensurePort() {
   if (port) return port;
   port = browser.runtime.connectNative(HOST_NAME);
   port.onMessage.addListener((msg) => {
+    connected = true; // a reply/event proves the daemon is reachable
     if (msg && msg.id != null && pending.has(msg.id)) {
       const resolve = pending.get(msg.id);
       pending.delete(msg.id);
@@ -38,6 +40,15 @@ function ensurePort() {
     }
     pending.clear();
     port = null;
+    connected = false;
+    // Reflect the dropped connection right away (badge stops showing a live
+    // green ▶). If a session was active, try to recover it now — the relay may
+    // just be respawning the daemon — instead of waiting for the periodic
+    // reconcile. If recovery fails, the badge stays in the disconnected color.
+    updateActiveBadge();
+    if (session.session && session.session !== "idle") {
+      setTimeout(reconcile, 500);
+    }
   });
   return port;
 }
@@ -201,7 +212,9 @@ function updateBadgeForTab(tabId) {
   let color = "#5b6470";
   if (session.session === "media" || session.session === "mirror" || session.session === "youtube") {
     text = "▶";
-    color = "#2e9e5b";
+    // Green while the daemon is reachable; muted grey when the connection has
+    // dropped so a stale session never looks live.
+    color = connected ? "#2e9e5b" : "#9aa3af";
   } else {
     const c = castability.get(tabId);
     if (c && c.best && !c.drm) {
@@ -256,7 +269,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   }
 
   if (msg.type === "get-state") {
-    return Promise.resolve({ session, devices, castability: castability.get(msg.tabId) || null });
+    return Promise.resolve({ session, devices, connected, castability: castability.get(msg.tabId) || null });
   }
 });
 

@@ -29,8 +29,8 @@ LibreWolf ──native messaging──► nm_relay ──unix socket (newline JS
 | `mirror_controller.*` | launches the `cast_sender` subprocess for window/screen mirroring (H.264 VAAPI, bitrate, optional audio PID); monitors/reaps it. |
 | `window_resolver.*` | resolves a window to address+PID via `hyprctl` (Hyprland); reports `wm_available=false` elsewhere so the daemon returns an actionable error. |
 | `youtube_cast_client.*` | Cast channel to the TV's YouTube app (LAUNCH `233637DE`, MDX handshake → screenId). |
-| `youtube_lounge.*` | YouTube Lounge HTTP API (token → bind → setPlaylist + play/pause/seek) via a managed `curl` subprocess; re-auths on an expired session. |
-| `youtube_controller.*` | orchestrates the two YouTube pieces; all Lounge HTTP runs on one worker thread so session state stays monotonic. |
+| `youtube_lounge.*` | YouTube Lounge HTTP API (token → bind → setPlaylist + play/pause/seek) via a managed `curl` subprocess; re-auths on an expired session. Also long-polls the event channel (`Poll`/`Refresh`) to read the TV's real playback state. |
+| `youtube_controller.*` | orchestrates the two YouTube pieces; Lounge commands run on one worker thread (monotonic session state), while a dedicated poll thread reads the event channel and pushes real play/pause status. |
 
 ## IPC protocol
 
@@ -41,8 +41,9 @@ events (no `id`).
 **Actions:** `devices`, `media-load`, `media-control` (`{cmd: play|pause|seek|volume|mute, value}`),
 `mirror-window`, `mirror-screen`, `youtube-load`, `status`, `stop`.
 
-**Events:** `session` (authoritative state on start/stop/natural end),
-`media-status` (live position for the URL receiver), `devices-changed`,
+**Events:** `session` (authoritative state on start/stop/natural end — now carries
+the real YouTube play/pause state from the Lounge event channel, not an optimistic
+default), `media-status` (live position for the URL receiver), `devices-changed`,
 `session-ended`.
 
 Error codes the extension reacts to: `ambiguous`, `no_devices`, `no_window`,

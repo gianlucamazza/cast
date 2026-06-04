@@ -72,11 +72,54 @@ if (!build_with_chromium) {
       "ipc_server.cc",
       "ipc_server.h",
       "ipc_server_unittest.cc",
+      "mirror_controller.cc",
+      "mirror_controller.h",
+      "mirror_controller_unittest.cc",
     ]
 
     deps = [
       "../../third_party/googletest:gtest",
       "../../third_party/googletest:gtest_main",
+    ]
+  }
+
+  # Controller tests that exercise the no-network paths of the media/youtube
+  # controllers with a FakeTaskRunner. Separate from castbridge_unittests because
+  # these link the openscreen Cast/platform stack (the controllers own Cast
+  # clients), whereas castbridge_unittests is dependency-free.
+  openscreen_executable("castbridge_controller_unittests") {
+    testonly = true
+    visibility = [ "../..:gn_all" ]
+
+    sources = [
+      "cast_channel_client.cc",
+      "cast_channel_client.h",
+      "media_controller.cc",
+      "media_controller.h",
+      "media_controller_unittest.cc",
+      "media_receiver_client.cc",
+      "media_receiver_client.h",
+      "youtube_cast_client.cc",
+      "youtube_cast_client.h",
+      "youtube_controller.cc",
+      "youtube_controller.h",
+      "youtube_controller_unittest.cc",
+      "youtube_lounge.cc",
+      "youtube_lounge.h",
+    ]
+
+    deps = [
+      "../../platform",
+      "../../platform:standalone_impl",
+      "../../platform:test",
+      "../../third_party/googletest:gtest",
+      "../../third_party/googletest:gtest_main",
+      "../../third_party/jsoncpp",
+      "../../util",
+      "../common:certificate_boringssl",
+      "../common:public",
+      "../common/channel/proto:channel_proto",
+      "../sender:channel",
     ]
   }
 }
