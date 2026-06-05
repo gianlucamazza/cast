@@ -41,6 +41,12 @@ events (no `id`).
 **Actions:** `devices`, `media-load`, `media-control` (`{cmd: play|pause|seek|volume|mute, value}`),
 `mirror-window`, `mirror-screen`, `youtube-load`, `status`, `stop`.
 
+`media-load` args: `url` (required, http/https), device selector (`ip` | `deviceId` |
+`device`), `contentType`, `currentTime`, and optional now-playing metadata — `title`,
+`subtitle`, `poster` (public image URL), `seriesTitle`, `season`, `episode`. The LOAD carries
+a TvShow metadata block when `seriesTitle` is set, a Movie block when `poster`/`subtitle` is
+set, else the bare title.
+
 **Events:** `session` (authoritative state on start/stop/natural end — now carries
 the real YouTube play/pause state from the Lounge event channel, not an optimistic
 default), `media-status` (live position for the URL receiver), `devices-changed`,

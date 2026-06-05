@@ -35,6 +35,16 @@ struct LoadRequest {
   std::string content_type;  // e.g. "video/mp4"; empty -> receiver guesses
   std::string title;
   double current_time = 0;
+  // Optional now-playing metadata shown on the receiver's media screen (and, via
+  // the protocol-level HUD bridge, on the desktop cast widget). When series_title
+  // is set the LOAD carries a TvShow metadata block, else when poster/subtitle is
+  // set a Movie block, else the bare title (back-compat). poster is a public image
+  // URL the receiver fetches.
+  std::string poster;
+  std::string subtitle;
+  std::string series_title;
+  int season = 0;
+  int episode = 0;
 };
 
 class MediaReceiverClient final : public CastChannelClient {
