@@ -81,10 +81,42 @@ void MediaReceiverClient::SendLoad() {
   media["streamType"] = "BUFFERED";
   media["contentType"] =
       request_.content_type.empty() ? "video/mp4" : request_.content_type;
+  // Metadata type per Google Cast: 0 Generic, 1 Movie, 2 TvShow. Choose the
+  // richest block the request supports so the receiver shows a real now-playing
+  // card (title + poster), and the HUD bridge reads a real title.
   Json::Value meta(Json::objectValue);
-  meta["metadataType"] = 0;
-  if (!request_.title.empty()) {
-    meta["title"] = request_.title;
+  if (!request_.series_title.empty()) {
+    meta["metadataType"] = 2;  // TvShowMediaMetadata
+    meta["seriesTitle"] = request_.series_title;
+    if (request_.season > 0) {
+      meta["season"] = request_.season;
+    }
+    if (request_.episode > 0) {
+      meta["episode"] = request_.episode;
+    }
+    if (!request_.title.empty()) {
+      meta["title"] = request_.title;  // episode title
+    }
+  } else if (!request_.poster.empty() || !request_.subtitle.empty()) {
+    meta["metadataType"] = 1;  // MovieMediaMetadata
+    if (!request_.title.empty()) {
+      meta["title"] = request_.title;
+    }
+    if (!request_.subtitle.empty()) {
+      meta["subtitle"] = request_.subtitle;
+    }
+  } else {
+    meta["metadataType"] = 0;  // GenericMediaMetadata (title only)
+    if (!request_.title.empty()) {
+      meta["title"] = request_.title;
+    }
+  }
+  if (!request_.poster.empty()) {
+    Json::Value image(Json::objectValue);
+    image["url"] = request_.poster;
+    Json::Value images(Json::arrayValue);
+    images.append(image);
+    meta["images"] = images;
   }
   media["metadata"] = meta;
 

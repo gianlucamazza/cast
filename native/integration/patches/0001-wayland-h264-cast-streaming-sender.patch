@@ -1,6 +1,6 @@
-From 5f8429335aa063a7768a3a3649cb8780de0e67f1 Mon Sep 17 00:00:00 2001
-From: Gianluca Mazza <info@gianlucamazza.it>
-Date: Thu, 4 Jun 2026 14:17:11 +0200
+From a7f850dae7833e607b818b72957da5d8682b51f5 Mon Sep 17 00:00:00 2001
+From: Gianluca <info@gianlucamazza.it>
+Date: Thu, 4 Jun 2026 18:01:37 +0200
 Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  sender
 
@@ -10,7 +10,7 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  cast/standalone_sender/BUILD.gn               |  27 +
  cast/standalone_sender/audio_capturer.cc      | 417 ++++++++
  cast/standalone_sender/audio_capturer.h       | 129 +++
- cast/standalone_sender/connection_settings.h  |   9 +
+ cast/standalone_sender/connection_settings.h  |  15 +
  .../ext-foreign-toplevel-list-v1-client.h     | 442 ++++++++
  .../ext-foreign-toplevel-list-v1.c            |  86 ++
  .../ext-image-capture-source-v1-client.h      | 310 ++++++
@@ -23,9 +23,11 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  .../hyprland-toplevel-mapping-v1-client.h     | 259 +++++
  .../hyprland-toplevel-mapping-v1.c            |  83 ++
  .../hyprland-toplevel-mapping-v1.xml          | 107 ++
- .../looping_file_cast_agent.cc                |  58 +-
- .../looping_file_cast_agent.h                 |   5 +
- cast/standalone_sender/main.cc                |  53 +-
+ .../looping_file_cast_agent.cc                | 121 ++-
+ .../looping_file_cast_agent.h                 |   7 +
+ cast/standalone_sender/looping_file_sender.cc | 140 ++-
+ cast/standalone_sender/looping_file_sender.h  |  21 +
+ cast/standalone_sender/main.cc                |  63 +-
  cast/standalone_sender/screen_capturer.cc     | 599 +++++++++++
  cast/standalone_sender/screen_capturer.h      | 171 +++
  .../standalone_sender/screen_mirror_sender.cc | 446 ++++++++
@@ -34,7 +36,7 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  docs/adr/0001-native-castbridge-backend.md    | 159 +++
  platform/BUILD.gn                             |   1 +
  .../socket_handle_waiter_posix_unittest.cc    |   3 +-
- 29 files changed, 5092 insertions(+), 11 deletions(-)
+ 31 files changed, 5326 insertions(+), 19 deletions(-)
  create mode 100644 cast/standalone_sender/audio_capturer.cc
  create mode 100644 cast/standalone_sender/audio_capturer.h
  create mode 100644 cast/standalone_sender/ext-foreign-toplevel-list-v1-client.h
@@ -691,10 +693,23 @@ index 00000000..cf8b70e4
 +
 +#endif  // CAST_STANDALONE_SENDER_AUDIO_CAPTURER_H_
 diff --git a/cast/standalone_sender/connection_settings.h b/cast/standalone_sender/connection_settings.h
-index a4078ce3..14626845 100644
+index a4078ce3..448c5cf8 100644
 --- a/cast/standalone_sender/connection_settings.h
 +++ b/cast/standalone_sender/connection_settings.h
-@@ -49,6 +49,15 @@ struct ConnectionSettings {
+@@ -38,6 +38,12 @@ struct ConnectionSettings {
+   // mirroring.
+   bool use_remoting = false;
+ 
++  // Diagnostic mode: after the mirroring app session is established, send a
++  // GET_CAPABILITIES request, log the receiver's RemotingCapabilities, and exit
++  // without negotiating a stream. Used to probe what a given receiver advertises
++  // for remoting (codecs, 4k) before building the remoting content path.
++  bool probe_caps = false;
++
+   // Whether we should loop the video when it is completed.
+   bool should_loop_video = true;
+ 
+@@ -49,6 +55,15 @@ struct ConnectionSettings {
  
    // Whether input event API should be enabled for this session.
    bool enable_input_events = false;
@@ -3673,7 +3688,7 @@ index 00000000..d197f8af
 +</protocol>
 \ No newline at end of file
 diff --git a/cast/standalone_sender/looping_file_cast_agent.cc b/cast/standalone_sender/looping_file_cast_agent.cc
-index f77a8c49..fa965219 100644
+index f77a8c49..42b6bd8f 100644
 --- a/cast/standalone_sender/looping_file_cast_agent.cc
 +++ b/cast/standalone_sender/looping_file_cast_agent.cc
 @@ -4,6 +4,9 @@
@@ -3686,7 +3701,15 @@ index f77a8c49..fa965219 100644
  #include <optional>
  #include <string>
  #include <utility>
-@@ -27,6 +30,31 @@ namespace {
+@@ -16,6 +19,7 @@
+ #include "cast/streaming/public/capture_recommendations.h"
+ #include "cast/streaming/public/constants.h"
+ #include "cast/streaming/public/offer_messages.h"
++#include "cast/streaming/remoting_capabilities.h"
+ #include "json/value.h"
+ #include "platform/api/tls_connection_factory.h"
+ #include "util/json/json_helpers.h"
+@@ -27,6 +31,31 @@ namespace {
  
  using DeviceMediaPolicy = SenderSocketFactory::DeviceMediaPolicy;
  
@@ -3718,7 +3741,28 @@ index f77a8c49..fa965219 100644
  }  // namespace
  
  LoopingFileCastAgent::LoopingFileCastAgent(
-@@ -316,6 +344,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+@@ -305,6 +334,20 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+   }
+   OSP_CHECK(!message_port_.source_id().empty());
+ 
++  // Capability-probe mode: ask the receiver what it supports for remoting and
++  // exit (no stream negotiated). OnCapabilitiesDetermined() logs the result; if
++  // the receiver does not support remoting, OnError(kRemotingNotSupported) fires.
++  if (connection_settings_->probe_caps) {
++    OSP_LOG_INFO << "Probing receiver remoting capabilities "
++                    "(GET_CAPABILITIES)...";
++    const Error error = current_session_->RequestCapabilities();
++    if (!error.ok()) {
++      OSP_LOG_ERROR << "Failed to request capabilities: " << error;
++      Shutdown();
++    }
++    return;
++  }
++
+   AudioCaptureConfig audio_config;
+   // Opus does best at 192kbps, so we cap that here.
+   audio_config.bit_rate = 192 * 1000;
+@@ -316,6 +359,18 @@ void LoopingFileCastAgent::CreateAndStartSession() {
    // Use default display resolution of 1080P.
    video_config.resolutions.emplace_back(Resolution{1920, 1080});
  
@@ -3737,7 +3781,7 @@ index f77a8c49..fa965219 100644
    OSP_VLOG << "Starting session negotiation.";
    Error negotiation_error;
    if (connection_settings_->use_remoting) {
-@@ -333,6 +373,7 @@ void LoopingFileCastAgent::CreateAndStartSession() {
+@@ -333,6 +388,7 @@ void LoopingFileCastAgent::CreateAndStartSession() {
    }
    if (!negotiation_error.ok()) {
      OSP_LOG_ERROR << "Failed to negotiate a session: " << negotiation_error;
@@ -3745,7 +3789,7 @@ index f77a8c49..fa965219 100644
    }
  }
  
-@@ -342,6 +383,7 @@ void LoopingFileCastAgent::OnNegotiated(
+@@ -342,6 +398,7 @@ void LoopingFileCastAgent::OnNegotiated(
      capture_recommendations::Recommendations capture_recommendations) {
    if (senders.audio_sender == nullptr || senders.video_sender == nullptr) {
      OSP_LOG_ERROR << "Missing both audio and video, so exiting...";
@@ -3753,7 +3797,58 @@ index f77a8c49..fa965219 100644
      return;
    }
  
-@@ -355,6 +397,7 @@ void LoopingFileCastAgent::OnNegotiated(
+@@ -352,9 +409,58 @@ void LoopingFileCastAgent::OnNegotiated(
+   }
+ }
+ 
++void LoopingFileCastAgent::OnCapabilitiesDetermined(
++    const SenderSession* session,
++    RemotingCapabilities capabilities) {
++  auto audio_name = [](AudioCapability c) -> const char* {
++    switch (c) {
++      case AudioCapability::kBaselineSet:
++        return "baseline-set";
++      case AudioCapability::kAac:
++        return "aac";
++      case AudioCapability::kOpus:
++        return "opus";
++    }
++    return "unknown";
++  };
++  auto video_name = [](VideoCapability c) -> const char* {
++    switch (c) {
++      case VideoCapability::kSupports4k:
++        return "4k";
++      case VideoCapability::kH264:
++        return "h264";
++      case VideoCapability::kVp8:
++        return "vp8";
++      case VideoCapability::kVp9:
++        return "vp9";
++      case VideoCapability::kHevc:
++        return "hevc";
++      case VideoCapability::kAv1:
++        return "av1";
++    }
++    return "unknown";
++  };
++
++  std::string audio;
++  for (const AudioCapability c : capabilities.audio) {
++    audio += audio_name(c);
++    audio += ' ';
++  }
++  std::string video;
++  for (const VideoCapability c : capabilities.video) {
++    video += video_name(c);
++    video += ' ';
++  }
++  OSP_LOG_INFO << "Receiver remoting capabilities: audio=[ " << audio
++               << "] video=[ " << video << "]";
++  // Probe complete; tear down and exit.
++  Shutdown();
++}
++
  void LoopingFileCastAgent::OnError(const SenderSession* session,
                                     const Error& error) {
    OSP_LOG_ERROR << "SenderSession fatal error: " << error;
@@ -3761,7 +3856,7 @@ index f77a8c49..fa965219 100644
    Shutdown();
  }
  
-@@ -416,17 +459,26 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
+@@ -416,17 +522,26 @@ void LoopingFileCastAgent::OnPlaybackRateChange(double rate) {
  
  void LoopingFileCastAgent::StartFileSender() {
    OSP_CHECK(current_negotiation_);
@@ -3792,7 +3887,7 @@ index f77a8c49..fa965219 100644
      OSP_LOG_INFO << "Stopping mirroring session...";
      current_session_.reset();
 diff --git a/cast/standalone_sender/looping_file_cast_agent.h b/cast/standalone_sender/looping_file_cast_agent.h
-index d391bf47..58a9ed1e 100644
+index d391bf47..22f4b2e6 100644
 --- a/cast/standalone_sender/looping_file_cast_agent.h
 +++ b/cast/standalone_sender/looping_file_cast_agent.h
 @@ -21,6 +21,7 @@
@@ -3803,7 +3898,16 @@ index d391bf47..58a9ed1e 100644
  #include "cast/streaming/public/environment.h"
  #include "cast/streaming/public/sender_session.h"
  #include "platform/base/error.h"
-@@ -189,6 +190,10 @@ class LoopingFileCastAgent final
+@@ -138,6 +139,8 @@ class LoopingFileCastAgent final
+                     SenderSession::ConfiguredSenders senders,
+                     capture_recommendations::Recommendations
+                         capture_recommendations) override;
++  void OnCapabilitiesDetermined(const SenderSession* session,
++                                RemotingCapabilities capabilities) override;
+   void OnError(const SenderSession* session, const Error& error) override;
+ 
+   // Input message handler.
+@@ -189,6 +192,10 @@ class LoopingFileCastAgent final
    std::unique_ptr<SenderSession> current_session_;
    std::unique_ptr<LoopingFileSender> file_sender_;
  
@@ -3814,8 +3918,260 @@ index d391bf47..58a9ed1e 100644
    // Remoting specific member variables.
    std::unique_ptr<RemotingSender> remoting_sender_;
  
+diff --git a/cast/standalone_sender/looping_file_sender.cc b/cast/standalone_sender/looping_file_sender.cc
+index 9e4e0425..2dbcc71f 100644
+--- a/cast/standalone_sender/looping_file_sender.cc
++++ b/cast/standalone_sender/looping_file_sender.cc
+@@ -4,7 +4,16 @@
+ 
+ #include "cast/standalone_sender/looping_file_sender.h"
+ 
++#include <algorithm>
++#include <memory>
+ #include <utility>
++#include <vector>
++
++extern "C" {
++#include <libavutil/frame.h>
++#include <libavutil/pixfmt.h>
++#include <libswscale/swscale.h>
++}
+ 
+ #if defined(CAST_STANDALONE_SENDER_HAVE_LIBAOM)
+ #include "cast/standalone_sender/streaming_av1_encoder.h"
+@@ -28,10 +37,6 @@ LoopingFileSender::LoopingFileSender(Environment& environment,
+       audio_encoder_(senders.audio_sender->config().channels,
+                      StreamingOpusEncoder::kDefaultCastAudioFramesPerSecond,
+                      std::move(senders.audio_sender)),
+-      video_encoder_(CreateVideoEncoder(
+-          StreamingVideoEncoder::Parameters{.codec = settings.codec},
+-          env_.task_runner(),
+-          std::move(senders.video_sender))),
+       next_task_(env_.now_function(), env_.task_runner()),
+       console_update_task_(env_.now_function(), env_.task_runner()) {
+   // Opus and Vp8 are the default values for the config, and if these are set
+@@ -40,7 +45,23 @@ LoopingFileSender::LoopingFileSender(Environment& environment,
+   OSP_CHECK(senders.audio_config.codec == AudioCodec::kOpus);
+   OSP_CHECK(senders.video_config.codec == VideoCodec::kVp8 ||
+             senders.video_config.codec == VideoCodec::kVp9 ||
+-            senders.video_config.codec == VideoCodec::kAv1);
++            senders.video_config.codec == VideoCodec::kAv1 ||
++            senders.video_config.codec == VideoCodec::kH264);
++
++  // H.264 is hardware-encoded via VAAPI (no StreamingVideoEncoder); VP8/VP9/AV1
++  // go through the software encoder factory. Mirrors ScreenMirrorSender. Branch
++  // on the negotiated codec (the field the OSP_CHECK above validates) so the
++  // encoder choice matches what the receiver actually answered.
++  use_h264_ = (senders.video_config.codec == VideoCodec::kH264);
++  if (use_h264_) {
++    h264_encoder_ = std::make_unique<H264VaapiEncoder>(
++        std::move(senders.video_sender), settings_.max_bitrate);
++  } else {
++    video_encoder_ = CreateVideoEncoder(
++        StreamingVideoEncoder::Parameters{.codec = settings_.codec},
++        env_.task_runner(), std::move(senders.video_sender));
++  }
++
+   OSP_LOG_INFO << "Max allowed media bitrate (audio + video) will be "
+                << settings_.max_bitrate;
+   bandwidth_being_utilized_ = settings_.max_bitrate / 2;
+@@ -49,7 +70,11 @@ LoopingFileSender::LoopingFileSender(Environment& environment,
+   next_task_.Schedule([this] { SendFileAgain(); }, Alarm::kImmediately);
+ }
+ 
+-LoopingFileSender::~LoopingFileSender() = default;
++LoopingFileSender::~LoopingFileSender() {
++  if (sws_) {
++    sws_freeContext(sws_);
++  }
++}
+ 
+ void LoopingFileSender::SetPlaybackRate(double rate) {
+   video_capturer_->SetPlaybackRate(rate);
+@@ -74,8 +99,13 @@ void LoopingFileSender::UpdateEncoderBitrates() {
+   } else {
+     audio_encoder_.UseStandardQuality();
+   }
+-  video_encoder_->SetTargetBitrate(bandwidth_being_utilized_ -
+-                                   audio_encoder_.GetBitrate());
++  const int video_bitrate =
++      bandwidth_being_utilized_ - audio_encoder_.GetBitrate();
++  if (use_h264_) {
++    h264_encoder_->SetTargetBitrate(video_bitrate);
++  } else {
++    video_encoder_->SetTargetBitrate(video_bitrate);
++  }
+ }
+ 
+ void LoopingFileSender::ControlForNetworkCongestion() {
+@@ -151,6 +181,15 @@ void LoopingFileSender::OnVideoFrame(const AVFrame& av_frame,
+   TRACE_SCOPED1(TraceCategory::kStandaloneSender, "OnVideoFrame",
+                 "reference_time", ToString(reference_time));
+   latest_frame_time_ = std::max(reference_time, latest_frame_time_);
++
++  if (use_h264_) {
++    // No DrawAnimations here: the click overlay is a mirroring-only feature
++    // (active_clicks_ is fed by OnInputMessage, never during file casting), and
++    // its 8-bit luma/chroma writes would corrupt a 10-bit (yuv420p10le) frame.
++    EncodeVideoFrameH264(av_frame, reference_time);
++    return;
++  }
++
+   StreamingVideoEncoder::VideoFrame frame{};
+   frame.width = av_frame.width - av_frame.crop_left - av_frame.crop_right;
+   frame.height = av_frame.height - av_frame.crop_top - av_frame.crop_bottom;
+@@ -174,6 +213,88 @@ void LoopingFileSender::OnVideoFrame(const AVFrame& av_frame,
+   video_encoder_->EncodeAndSend(frame, reference_time, {});
+ }
+ 
++// Known limitations (shared with the screen path, by design):
++//  - The output box is hardcoded to 1920x1080: the negotiated resolution is not
++//    read back from the receiver's ANSWER (same simplification as
++//    ScreenMirrorSender), so a receiver that answered a smaller box would still
++//    get 1080p. The configured TV negotiates 1080p, so this holds today.
++//  - H264VaapiEncoder uses constant-QP (qp=20), so SetTargetBitrate() does not
++//    hard-cap the output: bitrate is variable and a high-motion film scene may
++//    exceed the network budget. Acceptable for LAN casting; a qp/VBR knob would
++//    live in the shared encoder, not here.
++void LoopingFileSender::EncodeVideoFrameH264(
++    const AVFrame& av_frame,
++    Clock::time_point reference_time) {
++  const int src_w =
++      (av_frame.width - av_frame.crop_left - av_frame.crop_right) & ~1;
++  const int src_h =
++      (av_frame.height - av_frame.crop_top - av_frame.crop_bottom) & ~1;
++  if (src_w <= 0 || src_h <= 0) {
++    return;
++  }
++
++  // Scale down to fit the negotiated 1080p box (the receiver rejects larger
++  // frames); never upscale. H.264 is hardware-encoded so 1080p is affordable.
++  constexpr int kMaxW = 1920;
++  constexpr int kMaxH = 1080;
++  const double scale = std::min({1.0, static_cast<double>(kMaxW) / src_w,
++                                 static_cast<double>(kMaxH) / src_h});
++  const int dst_w = std::max(2, static_cast<int>(src_w * scale) & ~1);
++  const int dst_h = std::max(2, static_cast<int>(src_h * scale) & ~1);
++
++  // Use the decoded frame's actual pixel format (e.g. yuv420p10le for 10-bit
++  // HEVC) — hardcoding 8-bit YUV420P misreads 10-bit samples and distorts the
++  // image. swscale converts any of these to NV12 for the encoder.
++  const int src_fmt = av_frame.format;
++  if (!sws_ || sws_src_w_ != src_w || sws_src_h_ != src_h ||
++      sws_src_fmt_ != src_fmt) {
++    if (sws_) {
++      sws_freeContext(sws_);
++    }
++    sws_ = sws_getContext(src_w, src_h, static_cast<AVPixelFormat>(src_fmt),
++                          dst_w, dst_h, AV_PIX_FMT_NV12, SWS_LANCZOS, nullptr,
++                          nullptr, nullptr);
++    sws_src_w_ = src_w;
++    sws_src_h_ = src_h;
++    sws_src_fmt_ = src_fmt;
++  }
++  if (!sws_) {
++    return;
++  }
++
++  // swscale writes in SIMD chunks past each line, so align strides to 32 and
++  // add slack to avoid heap overruns. NV12: Y plane then interleaved UV.
++  auto align32 = [](int v) { return (v + 31) & ~31; };
++  const int y_stride = align32(dst_w);
++  const int uv_stride = align32(dst_w);
++  const size_t y_size = static_cast<size_t>(y_stride) * dst_h;
++  const size_t uv_size = static_cast<size_t>(uv_stride) * (dst_h / 2);
++  // Reusable scratch buffer: the encode below is synchronous on this thread, so
++  // (unlike the screen path, which posts to another thread) we need no per-frame
++  // allocation. resize() only reallocates when the frame size changes.
++  nv12_buf_.resize(y_size + uv_size + 64);
++  std::vector<uint8_t>& nv12 = nv12_buf_;
++
++  const uint8_t* src[3] = {
++      av_frame.data[0] + av_frame.crop_left +
++          av_frame.linesize[0] * av_frame.crop_top,
++      av_frame.data[1] + av_frame.crop_left / 2 +
++          av_frame.linesize[1] * av_frame.crop_top / 2,
++      av_frame.data[2] + av_frame.crop_left / 2 +
++          av_frame.linesize[2] * av_frame.crop_top / 2};
++  int src_stride[3] = {av_frame.linesize[0], av_frame.linesize[1],
++                       av_frame.linesize[2]};
++  uint8_t* dst[2] = {nv12.data(), nv12.data() + y_size};
++  int dst_stride[2] = {y_stride, uv_stride};
++  sws_scale(sws_, src, src_stride, 0, src_h, dst, dst_stride);
++
++  // OnVideoFrame already runs on the main TaskRunner (the encoder/Sender
++  // thread), so encode synchronously — no PostTask needed (unlike the screen
++  // path, whose capturer runs on another thread).
++  h264_encoder_->EncodeFrame(nv12.data(), y_stride, nv12.data() + y_size,
++                             uv_stride, dst_w, dst_h, reference_time);
++}
++
+ void LoopingFileSender::UpdateStatusOnConsole() {
+   const Clock::duration elapsed = latest_frame_time_ - capture_begin_time_;
+   // The control codes here attempt to erase the current line the cursor is
+@@ -299,6 +420,9 @@ std::unique_ptr<StreamingVideoEncoder> LoopingFileSender::CreateVideoEncoder(
+     TaskRunner& task_runner,
+     std::unique_ptr<Sender> sender) {
+   switch (params.codec) {
++    case VideoCodec::kH264:
++      // H.264 is handled by H264VaapiEncoder in the constructor, not here.
++      return nullptr;
+     case VideoCodec::kVp8:
+     case VideoCodec::kVp9:
+       return std::make_unique<StreamingVpxEncoder>(params, task_runner,
+diff --git a/cast/standalone_sender/looping_file_sender.h b/cast/standalone_sender/looping_file_sender.h
+index 91041604..b02e423c 100644
+--- a/cast/standalone_sender/looping_file_sender.h
++++ b/cast/standalone_sender/looping_file_sender.h
+@@ -13,11 +13,14 @@
+ 
+ #include "cast/standalone_sender/connection_settings.h"
+ #include "cast/standalone_sender/constants.h"
++#include "cast/standalone_sender/h264_vaapi_encoder.h"
+ #include "cast/standalone_sender/simulated_capturer.h"
+ #include "cast/standalone_sender/streaming_opus_encoder.h"
+ #include "cast/standalone_sender/streaming_video_encoder.h"
+ #include "cast/streaming/public/sender_session.h"
+ 
++struct SwsContext;
++
+ namespace openscreen::cast {
+ 
+ // Plays the media file at a given path over and over again, transcoding and
+@@ -75,6 +78,11 @@ class LoopingFileSender final : public SimulatedAudioCapturer::Client,
+       TaskRunner& task_runner,
+       std::unique_ptr<Sender> sender);
+ 
++  // H.264 path: convert the decoded I420 frame to NV12 (downscaling to fit the
++  // negotiated 1080p box) and hand it to the VAAPI hardware encoder.
++  void EncodeVideoFrameH264(const AVFrame& av_frame,
++                            Clock::time_point reference_time);
++
+   // Holds the required injected dependencies (clock, task runner) used for Cast
+   // Streaming, and owns the UDP socket over which all communications occur with
+   // the remote's Receivers.
+@@ -95,6 +103,19 @@ class LoopingFileSender final : public SimulatedAudioCapturer::Client,
+   StreamingOpusEncoder audio_encoder_;
+   std::unique_ptr<StreamingVideoEncoder> video_encoder_;
+ 
++  // VAAPI H.264 hardware encode path (selected when the negotiated video codec
++  // is H.264; the iGPU has no VP8/VP9 hardware encode). `use_h264_` chooses it
++  // over `video_encoder_`; `sws_` converts the decoded I420 frame to NV12.
++  std::unique_ptr<H264VaapiEncoder> h264_encoder_;
++  bool use_h264_ = false;
++  SwsContext* sws_ = nullptr;
++  int sws_src_w_ = 0;
++  int sws_src_h_ = 0;
++  int sws_src_fmt_ = -1;
++  // Reusable NV12 scratch buffer for the H.264 path (synchronous encode, so no
++  // per-frame allocation needed). Grown on demand in EncodeVideoFrameH264.
++  std::vector<uint8_t> nv12_buf_;
++
+   int num_capturers_running_ = 0;
+   Clock::time_point capture_begin_time_{};
+   Clock::time_point latest_frame_time_{};
 diff --git a/cast/standalone_sender/main.cc b/cast/standalone_sender/main.cc
-index d1716dc6..d67a41a4 100644
+index d1716dc6..3a26e695 100644
 --- a/cast/standalone_sender/main.cc
 +++ b/cast/standalone_sender/main.cc
 @@ -42,11 +42,11 @@ namespace {
@@ -3867,7 +4223,18 @@ index d1716dc6..d67a41a4 100644
  
      -d, --developer-certificate=path-to-cert
            Specifies the path to a self-signed developer certificate that will
-@@ -121,8 +141,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
+@@ -86,6 +106,10 @@ options:
+ 
+     -r, --remoting: Enable remoting content instead of mirroring.
+ 
++    -C, --probe-caps: Connect, ask the receiver for its remoting capabilities
++                      (GET_CAPABILITIES), log them, and exit without streaming.
++                      A file path argument is still required (unused).
++
+     -t, --tracing: Enable text based performance trace logging.
+ 
+     -v, --verbose: Enable verbose logging.
+@@ -121,8 +145,11 @@ IPEndpoint ParseAsEndpoint(const char* string_form) {
  
  std::optional<VideoCodec> ParseCodec(std::string_view arg) {
    // We can only support codecs that have a corresponding encoder library.
@@ -3881,8 +4248,11 @@ index d1716dc6..d67a41a4 100644
  
    const auto parsed = StringToVideoCodec(arg);
    if (!parsed || std::ranges::find(kSupportedCodecs, parsed.value()) ==
-@@ -147,6 +170,8 @@ struct Arguments {
+@@ -145,8 +172,11 @@ struct Arguments {
+   std::string developer_certificate_path;
+   bool use_android_rtp_hack = false;
    bool use_remoting = false;
++  bool probe_caps = false;
    bool enable_input_events = false;
    bool is_verbose = false;
 +  int audio_target_pid = 0;
@@ -3890,7 +4260,7 @@ index d1716dc6..d67a41a4 100644
    VideoCodec codec = VideoCodec::kVp8;
    std::unique_ptr<TraceLoggingPlatform> trace_logger;
    bool enable_dscp = true;
-@@ -163,6 +188,8 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+@@ -163,10 +193,13 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
        {"developer-certificate", required_argument, nullptr, 'd'},
        {"enable-input-events", no_argument, nullptr, 'i'},
        {"help", no_argument, nullptr, 'h'},
@@ -3899,12 +4269,17 @@ index d1716dc6..d67a41a4 100644
        {"max-bitrate", required_argument, nullptr, 'm'},
        {"no-looping", no_argument, nullptr, 'n'},
        {"disable-dscp", no_argument, nullptr, 'q'},
-@@ -176,12 +203,22 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+       {"remoting", no_argument, nullptr, 'r'},
++      {"probe-caps", no_argument, nullptr, 'C'},
+       {"tracing", no_argument, nullptr, 't'},
+ #if defined(USE_PERFETTO)
+       {"perfetto", no_argument, nullptr, 'P'},
+@@ -176,12 +209,22 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
  
    Arguments args;
    int ch = -1;
 -  while ((ch = getopt_long(argc, argv, "ac:d:him:nqrtvP", kArgumentOptions,
-+  while ((ch = getopt_long(argc, argv, "aA:c:d:him:nN:qrtvP", kArgumentOptions,
++  while ((ch = getopt_long(argc, argv, "aA:Cc:d:him:nN:qrtvP", kArgumentOptions,
                             nullptr)) != -1) {
      switch (ch) {
        case 'a':
@@ -3923,7 +4298,21 @@ index d1716dc6..d67a41a4 100644
        case 'm':
          if (!string_parse::ParseAsciiNumber(get_opt::optarg,
                                              args.max_bitrate) ||
-@@ -304,7 +341,9 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+@@ -207,6 +250,9 @@ std::optional<Arguments> ParseArgs(int argc, char* argv[]) {
+       case 'r':
+         args.use_remoting = true;
+         break;
++      case 'C':
++        args.probe_caps = true;
++        break;
+       case 't':
+         args.trace_logger = std::make_unique<TextTraceLoggingPlatform>();
+         break;
+@@ -301,10 +347,13 @@ int StandaloneSenderMain(int argc, char* argv[]) {
+                          .should_include_video = true,
+                          .use_android_rtp_hack = args->use_android_rtp_hack,
+                          .use_remoting = args->use_remoting,
++                         .probe_caps = args->probe_caps,
                           .should_loop_video = args->should_loop_video,
                           .codec = args->codec,
                           .enable_dscp = args->enable_dscp,

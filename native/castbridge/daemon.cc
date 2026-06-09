@@ -297,6 +297,11 @@ void HandleRequest(IpcServer& server,
       req.content_type = args.get("contentType", "").asString();
       req.title = args.get("title", "").asString();
       req.current_time = args.get("currentTime", 0.0).asDouble();
+      req.poster = args.get("poster", "").asString();
+      req.subtitle = args.get("subtitle", "").asString();
+      req.series_title = args.get("seriesTitle", "").asString();
+      req.season = args.get("season", 0).asInt();
+      req.episode = args.get("episode", 0).asInt();
       const Json::Value id = resp["id"];
       media.LoadAsync(ip, req, [&server, conn, id](bool ok,
                                                    const std::string& e) {

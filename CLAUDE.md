@@ -64,7 +64,9 @@ bash install/install-host.sh   # native-messaging manifest + wrapper; then load 
 - **IPC protocol**: newline-delimited JSON. Requests `{id, action, args}` →
   replies `{id, action, ok, data|error}`; daemon also emits id-less push events.
   Actions: `devices`, `media-load`, `media-control`, `mirror-window`,
-  `mirror-screen`, `youtube-load`, `status`, `stop`. Events: `session`,
+  `mirror-screen`, `youtube-load`, `status`, `stop`. `media-load` accepts optional
+  now-playing metadata args (`title`, `subtitle`, `poster`, `seriesTitle`, `season`,
+  `episode`) → Movie/TvShow LOAD metadata (see `castbridge/README.md`). Events: `session`,
   `media-status`, `devices-changed`, `session-ended`. Error codes the extension
   reacts to: `ambiguous`, `no_devices`, `no_window`, `no_wm`, plus relay-level
   `nohost`/`timeout`.
