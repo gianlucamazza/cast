@@ -288,8 +288,8 @@ void YouTubeController::ControlAsync(std::string cmd,
 }
 
 void YouTubeController::StopAsync(Completion done) {
-  // Tell the TV's YouTube app to stop (clearPlaylist) on the worker thread, then
-  // close the Cast channel on the TaskRunner thread.
+  // Tell the TV's YouTube app to stop (clearPlaylist) on the worker thread,
+  // then close the Cast channel on the TaskRunner thread.
   Enqueue([this, done] {
     std::shared_ptr<YouTubeLounge> lg = SnapshotLounge();
     if (lg) {

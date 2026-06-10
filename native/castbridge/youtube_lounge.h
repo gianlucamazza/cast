@@ -2,7 +2,8 @@
 // lounge token, binds a session (SID/gsessionid), and drives the TV's YouTube
 // app (setPlaylist + play/pause/seek). HTTPS is done via the `curl` binary as a
 // managed subprocess — this avoids linking libcurl(→openssl) alongside
-// openscreen's boringssl in the same binary. Blocking; call from a worker thread.
+// openscreen's boringssl in the same binary. Blocking; call from a worker
+// thread.
 #ifndef CAST_CASTBRIDGE_YOUTUBE_LOUNGE_H_
 #define CAST_CASTBRIDGE_YOUTUBE_LOUNGE_H_
 
@@ -28,10 +29,10 @@ struct YouTubeStatus {
 // Result of a single Poll(): whether a usable status was parsed, plus a hint to
 // the caller when the session must be re-authenticated (on the command thread).
 enum class PollResult {
-  kNoChange,    // poll returned, nothing new (timeout / non-status frames)
-  kStatus,      // *out was populated with a fresh status
-  kNeedRefresh, // session expired (HTTP 4xx); caller must Refresh() then retry
-  kError,       // transient error; back off and retry
+  kNoChange,     // poll returned, nothing new (timeout / non-status frames)
+  kStatus,       // *out was populated with a fresh status
+  kNeedRefresh,  // session expired (HTTP 4xx); caller must Refresh() then retry
+  kError,        // transient error; back off and retry
 };
 
 class YouTubeLounge {
@@ -51,7 +52,8 @@ class YouTubeLounge {
   // to ~30s. `error` gets a human-readable message on kError/kNeedRefresh.
   PollResult Poll(YouTubeStatus* out, std::string* error);
 
-  // Re-fetch token + re-bind for the saved screen. Call from the command thread.
+  // Re-fetch token + re-bind for the saved screen. Call from the command
+  // thread.
   std::string Refresh();
 
   bool valid() const {
@@ -61,10 +63,10 @@ class YouTubeLounge {
 
  private:
   std::string GetToken(const std::string& screen_id, std::string* error);
-  std::string Bind(std::string* error);            // sets sid_/gsessionid_
+  std::string Bind(std::string* error);  // sets sid_/gsessionid_
   std::string SendCommand(const std::vector<std::string>& req_fields,
                           int* http_code,
-                          std::string* error);     // bc/bind with SID/gsessionid
+                          std::string* error);  // bc/bind with SID/gsessionid
 
   // Guards sid_/gsessionid_/token_: written by Bind()/Refresh() on the command
   // thread, read by Poll() on the poll thread.

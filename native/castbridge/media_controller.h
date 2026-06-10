@@ -32,8 +32,9 @@ class MediaController {
   void ControlAsync(std::string cmd, double value, Completion done);
   void StopAsync(Completion done);
 
-  // Destroy the cast client. MUST be called on the TaskRunner thread (openscreen
-  // objects assert thread affinity on destruction). Used for clean shutdown.
+  // Destroy the cast client. MUST be called on the TaskRunner thread
+  // (openscreen objects assert thread affinity on destruction). Used for clean
+  // shutdown.
   void ResetClient() { client_.reset(); }
 
   MediaStatus Snapshot() const;

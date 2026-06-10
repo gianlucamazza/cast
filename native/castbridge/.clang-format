@@ -1,0 +1,4 @@
+# Mirrors the openscreen fork's style so castbridge sources format identically
+# whether edited here or inside the fork checkout (build.sh symlinks them in).
+BasedOnStyle: Chromium
+IncludeBlocks: Regroup

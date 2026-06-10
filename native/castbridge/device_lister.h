@@ -59,8 +59,8 @@ class DeviceLister final : public openscreen::discovery::ReportingClient {
 
   openscreen::TaskRunner& task_runner_;
   openscreen::discovery::DnsSdServicePtr service_;
-  std::unique_ptr<
-      openscreen::discovery::DnsSdServiceWatcher<openscreen::cast::ReceiverInfo>>
+  std::unique_ptr<openscreen::discovery::DnsSdServiceWatcher<
+      openscreen::cast::ReceiverInfo>>
       watcher_;
 
   mutable std::mutex mutex_;
