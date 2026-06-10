@@ -18,19 +18,19 @@ LibreWolf ──native messaging──► nm_relay ──unix socket (newline JS
 
 ## Subsystems
 
-| File | Role |
-|------|------|
-| `nm_relay.*` | native-messaging framing (uint32 len + JSON) ⇄ unix socket lines; auto-spawns the daemon under an `flock` so concurrent relays don't race. |
-| `ipc_server.*` | AF_UNIX server, newline-delimited JSON, multi-client, `poll()` + `eventfd` wakeups. |
-| `daemon.*` | owns the subsystems; dispatches request actions and broadcasts push events; signal-driven lifecycle. |
-| `device_lister.*` | openscreen mDNS discovery; thread-safe snapshot, offline diffing, LAN-interface filtering. |
-| `media_receiver_client.*` | drives the default media receiver `CC1AD845`: connect → LAUNCH → LOAD, status updates, play/pause/seek/volume/mute, reconnect/teardown. |
-| `media_controller.*` | binds IPC requests to the receiver client on the TaskRunner thread (load timeout, one-shot guards, status broadcast). |
-| `mirror_controller.*` | launches the `cast_sender` subprocess for window/screen mirroring (H.264 VAAPI, bitrate, optional audio PID); monitors/reaps it. |
-| `window_resolver.*` | resolves a window to address+PID via `hyprctl` (Hyprland); reports `wm_available=false` elsewhere so the daemon returns an actionable error. |
-| `youtube_cast_client.*` | Cast channel to the TV's YouTube app (LAUNCH `233637DE`, MDX handshake → screenId). |
-| `youtube_lounge.*` | YouTube Lounge HTTP API (token → bind → setPlaylist + play/pause/seek) via a managed `curl` subprocess; re-auths on an expired session. Also long-polls the event channel (`Poll`/`Refresh`) to read the TV's real playback state. |
-| `youtube_controller.*` | orchestrates the two YouTube pieces; Lounge commands run on one worker thread (monotonic session state), while a dedicated poll thread reads the event channel and pushes real play/pause status. |
+| File                      | Role                                                                                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nm_relay.*`              | native-messaging framing (uint32 len + JSON) ⇄ unix socket lines; auto-spawns the daemon under an `flock` so concurrent relays don't race.                                                                                         |
+| `ipc_server.*`            | AF_UNIX server, newline-delimited JSON, multi-client, `poll()` + `eventfd` wakeups.                                                                                                                                                |
+| `daemon.*`                | owns the subsystems; dispatches request actions and broadcasts push events; signal-driven lifecycle.                                                                                                                               |
+| `device_lister.*`         | openscreen mDNS discovery; thread-safe snapshot, offline diffing, LAN-interface filtering.                                                                                                                                         |
+| `media_receiver_client.*` | drives the default media receiver `CC1AD845`: connect → LAUNCH → LOAD, status updates, play/pause/seek/volume/mute, reconnect/teardown.                                                                                            |
+| `media_controller.*`      | binds IPC requests to the receiver client on the TaskRunner thread (load timeout, one-shot guards, status broadcast).                                                                                                              |
+| `mirror_controller.*`     | launches the `cast_sender` subprocess for window/screen mirroring (H.264 VAAPI, bitrate, optional audio PID); monitors/reaps it.                                                                                                   |
+| `window_resolver.*`       | resolves a window to address+PID via `hyprctl` (Hyprland); reports `wm_available=false` elsewhere so the daemon returns an actionable error.                                                                                       |
+| `youtube_cast_client.*`   | Cast channel to the TV's YouTube app (LAUNCH `233637DE`, MDX handshake → screenId).                                                                                                                                                |
+| `youtube_lounge.*`        | YouTube Lounge HTTP API (token → bind → setPlaylist + play/pause/seek) via a managed `curl` subprocess; re-auths on an expired session. Also long-polls the event channel (`Poll`/`Refresh`) to read the TV's real playback state. |
+| `youtube_controller.*`    | orchestrates the two YouTube pieces; Lounge commands run on one worker thread (monotonic session state), while a dedicated poll thread reads the event channel and pushes real play/pause status.                                  |
 
 ## IPC protocol
 
@@ -41,11 +41,14 @@ events (no `id`).
 **Actions:** `devices`, `media-load`, `media-control` (`{cmd: play|pause|seek|volume|mute, value}`),
 `mirror-window`, `mirror-screen`, `youtube-load`, `status`, `stop`.
 
-`media-load` args: `url` (required, http/https), device selector (`ip` | `deviceId` |
-`device`), `contentType`, `currentTime`, and optional now-playing metadata — `title`,
-`subtitle`, `poster` (public image URL), `seriesTitle`, `season`, `episode`. The LOAD carries
-a TvShow metadata block when `seriesTitle` is set, a Movie block when `poster`/`subtitle` is
-set, else the bare title.
+`media-load` args: `url` (required, http/https, ≤4096 chars), device selector (`ip` —
+must be a literal IPv4 — | `deviceId` | `device`), `contentType`, `currentTime`, and
+optional now-playing metadata — `title`, `subtitle`, `poster` (http/https image URL,
+validated), `seriesTitle`, `season`, `episode`. The LOAD carries a TvShow metadata block
+when `seriesTitle` is set, a Movie block when `poster`/`subtitle` is set, else the bare
+title. The receiver must be able to fetch `url` itself (complete file, Range-served);
+if its player aborts, the daemon logs the receiver's `idleReason`
+(`ERROR`/`CANCELLED`/...) and pushes an idle `media-status`.
 
 **Events:** `session` (authoritative state on start/stop/natural end — now carries
 the real YouTube play/pause state from the Lounge event channel, not an optimistic
