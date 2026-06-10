@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-10
+
 ### Added
 
 - `SECURITY.md` (security model + private vulnerability reporting),
