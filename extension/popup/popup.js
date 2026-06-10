@@ -7,11 +7,22 @@ let devices = [];
 let devicesScanned = false;
 let offline = false; // daemon unreachable (nohost/disconnected)
 let takeoverArmed = null; // deviceId awaiting a confirm click (busy, not ours)
+let takeoverTimer = null; // the armed confirm expires after a short window
+
+function disarmTakeover() {
+  takeoverArmed = null;
+  clearTimeout(takeoverTimer);
+  takeoverTimer = null;
+}
 
 // True when a reply indicates the daemon isn't reachable (not installed or down).
 function daemonDown(reply) {
-  return !!reply && !reply.ok && reply.error &&
-    (reply.error.code === "nohost" || reply.error.code === "disconnected");
+  return (
+    !!reply &&
+    !reply.ok &&
+    reply.error &&
+    (reply.error.code === "nohost" || reply.error.code === "disconnected")
+  );
 }
 let selectedId = "";
 let activeTab = null;
@@ -125,7 +136,10 @@ function ensureSelection() {
 // Persist id + friendly name so the in-page YouTube overlay can label the
 // device ("Playing on <name>") even when the cast is launched from the popup.
 function persistSelection() {
-  browser.storage.local.set({ deviceId: selectedId, deviceName: selectedName() });
+  browser.storage.local.set({
+    deviceId: selectedId,
+    deviceName: selectedName(),
+  });
 }
 
 function selectedName() {
@@ -135,7 +149,7 @@ function selectedName() {
 
 function selectDevice(id) {
   selectedId = id;
-  takeoverArmed = null; // a fresh selection cancels a pending takeover confirm
+  disarmTakeover(); // a fresh selection cancels a pending takeover confirm
   persistSelection();
   renderDevices();
   toggleDevices(false);
@@ -143,11 +157,14 @@ function selectDevice(id) {
 
 function toggleDevices(open) {
   const panel = $("devices");
-  const willOpen = open === undefined ? panel.classList.contains("hidden") : open;
+  const willOpen =
+    open === undefined ? panel.classList.contains("hidden") : open;
   panel.classList.toggle("hidden", !willOpen);
   $("device-chip").setAttribute("aria-expanded", String(willOpen));
   if (willOpen) {
-    const sel = $("device-list").querySelector('[aria-selected="true"]') || $("device-list").firstElementChild;
+    const sel =
+      $("device-list").querySelector('[aria-selected="true"]') ||
+      $("device-list").firstElementChild;
     if (sel) sel.focus();
   }
 }
@@ -193,8 +210,9 @@ function renderDevices() {
   const empty = devices.length === 0;
   // When the daemon is unreachable, say so explicitly instead of the generic
   // "no TV found" — it's actionable (install/start the host).
-  $("devices-empty").textContent =
-    offline ? CastErrors.errorMessage("nohost") : msg("noDevicesFound");
+  $("devices-empty").textContent = offline
+    ? CastErrors.errorMessage("nohost")
+    : msg("noDevicesFound");
   $("devices-scanning").classList.toggle("hidden", devicesScanned);
   $("devices-empty").classList.toggle("hidden", !(devicesScanned && empty));
   ul.classList.toggle("hidden", empty);
@@ -204,7 +222,8 @@ function render() {
   const chip = $("device-chip");
   chip.classList.toggle("active", session.session !== "idle");
 
-  const mediaLike = session.session === "media" || session.session === "youtube";
+  const mediaLike =
+    session.session === "media" || session.session === "youtube";
   show("idle", session.session === "idle");
   show("media", mediaLike);
   show("mirror", session.session === "mirror");
@@ -215,7 +234,8 @@ function render() {
     renderYouTube(session.youtube || { title: msg("youtube") });
   } else if (session.session === "mirror" && session.mirror) {
     const m = session.mirror;
-    $("mirror-target").textContent = `${m.mode === "window" ? "window" : "screen"}: ${m.target || ""} → ${m.device || ""}`;
+    $("mirror-target").textContent =
+      `${m.mode === "window" ? "window" : "screen"}: ${m.target || ""} → ${m.device || ""}`;
   } else {
     renderIdle();
   }
@@ -247,7 +267,8 @@ function renderIdle() {
   }
   if (c && c.best && !c.drm) {
     btn.disabled = false;
-    btn.textContent = c.best.kind === "site" ? msg("castPageVideo") : msg("castVideo");
+    btn.textContent =
+      c.best.kind === "site" ? msg("castPageVideo") : msg("castVideo");
     $("hint").textContent = "";
   } else {
     btn.disabled = true;
@@ -301,12 +322,23 @@ function bind() {
     // session of our own there): require a confirming second click before we
     // take it over.
     const dev = devices.find((d) => d.id === selectedId);
-    if (dev && dev.busy && session.session === "idle" && takeoverArmed !== selectedId) {
+    if (
+      dev &&
+      dev.busy &&
+      session.session === "idle" &&
+      takeoverArmed !== selectedId
+    ) {
+      disarmTakeover();
       takeoverArmed = selectedId;
+      takeoverTimer = setTimeout(() => {
+        // The confirm window expired: require arming again.
+        takeoverArmed = null;
+        setStatus("");
+      }, 10000);
       setStatus(msg("confirmTakeover"));
       return;
     }
-    takeoverArmed = null;
+    disarmTakeover();
     const best = castability.best;
     return withBusy(e.currentTarget, async () => {
       setStatus(msg("statusCasting"));
@@ -332,10 +364,13 @@ function bind() {
   $("mirror-window").addEventListener("click", (e) =>
     withBusy(e.currentTarget, async () => {
       setStatus(msg("statusMirrorStarting"));
-      const r = await host("mirror-window", { deviceId: selectedId, selector: "librewolf" });
+      const r = await host("mirror-window", {
+        deviceId: selectedId,
+        selector: "librewolf",
+      });
       reply(r, msg("statusMirroringWindow"));
       if (r && r.ok) refreshStatus();
-    })
+    }),
   );
 
   $("mirror-screen").addEventListener("click", (e) =>
@@ -344,7 +379,7 @@ function bind() {
       const r = await host("mirror-screen", { deviceId: selectedId });
       reply(r, msg("statusMirroringScreen"));
       if (r && r.ok) refreshStatus();
-    })
+    }),
   );
 
   $("playpause").addEventListener("click", async () => {
@@ -381,7 +416,10 @@ function bind() {
     seeking = true;
   });
   seek.addEventListener("change", async () => {
-    const r = await host("media-control", { cmd: "seek", value: Number(seek.value) });
+    const r = await host("media-control", {
+      cmd: "seek",
+      value: Number(seek.value),
+    });
     seeking = false;
     // On failure, surface it and pull the slider back to the real position.
     if (!r || !r.ok) {
