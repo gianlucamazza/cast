@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper the browser launches (native-messaging manifest path). Single source
+# for both install-host.sh (@BIN@ = the built binary) and the AUR PKGBUILD
+# (@BIN@ = /usr/bin/castbridge).
+exec "@BIN@" --nm-host
