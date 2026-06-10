@@ -20,12 +20,11 @@ CASTBRIDGE_BIN="${CASTBRIDGE_BIN:-$OPENSCREEN_DIR/out/Default/castbridge}"
 }
 
 # 1) Wrapper exec'd by the browser (native manifest path must be an executable).
+# Generated from the shared template so this and the PKGBUILD never drift.
 mkdir -p "$HOME/.local/bin"
 WRAPPER="$HOME/.local/bin/castbridge-nm-host"
-cat >"$WRAPPER" <<EOF
-#!/usr/bin/env bash
-exec "$CASTBRIDGE_BIN" --nm-host
-EOF
+wrapper_src="$(cat "$REPO_DIR/install/castbridge-nm-host.sh.in")"
+printf '%s\n' "${wrapper_src//@BIN@/$CASTBRIDGE_BIN}" >"$WRAPPER"
 chmod +x "$WRAPPER"
 echo "wrapper: $WRAPPER -> $CASTBRIDGE_BIN --nm-host"
 

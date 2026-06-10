@@ -44,13 +44,13 @@ void MediaController::LoadAsync(std::string ip,
           finish(false, e);
           OnClosed();
         });
-    client_->Connect(endpoint, request,
-                     [finish](bool ok, const std::string& e) {
-                       finish(ok, e);
-                     });
+    client_->Connect(
+        endpoint, request,
+        [finish](bool ok, const std::string& e) { finish(ok, e); });
 
-    task_runner_.PostTaskWithDelay([finish] { finish(false, "media load timed out"); },
-                                   std::chrono::seconds(12));
+    task_runner_.PostTaskWithDelay(
+        [finish] { finish(false, "media load timed out"); },
+        std::chrono::seconds(12));
   });
 }
 

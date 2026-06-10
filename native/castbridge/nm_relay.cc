@@ -19,7 +19,8 @@ namespace castbridge {
 
 namespace {
 
-constexpr uint32_t kMaxMessage = 16 * 1024 * 1024;  // generous browser->host cap
+constexpr uint32_t kMaxMessage =
+    16 * 1024 * 1024;  // generous browser->host cap
 
 std::string RuntimeDir() {
   const char* xdg = std::getenv("XDG_RUNTIME_DIR");
@@ -78,6 +79,10 @@ int ConnectSocket(const std::string& path) {
   }
   sockaddr_un addr{};
   addr.sun_family = AF_UNIX;
+  if (path.size() >= sizeof(addr.sun_path)) {
+    close(fd);
+    return -1;  // would silently truncate and connect to the wrong path
+  }
   std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
   if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
     close(fd);
@@ -167,7 +172,8 @@ int RunNmRelay() {
   const std::string path = SocketPath();
   int sock = ConnectWithStart(path);
   if (sock < 0) {
-    WriteNmFrame(R"({"ok":false,"error":{"code":"daemon","message":"cannot reach castbridge daemon"}})");
+    WriteNmFrame(
+        R"({"ok":false,"error":{"code":"daemon","message":"cannot reach castbridge daemon"}})");
     return 1;
   }
 

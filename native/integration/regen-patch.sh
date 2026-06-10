@@ -12,11 +12,24 @@
 # commit in a throwaway worktree and asserts the resulting tree is byte-identical
 # to the fork branch tree. If they differ it fails without touching anything.
 #
-#   bash native/integration/regen-patch.sh
+#   bash native/integration/regen-patch.sh                # regenerate + write
+#   bash native/integration/regen-patch.sh --verify-only  # check, write nothing
+#
+# --verify-only exits non-zero when the committed patch/pin have drifted from
+# the fork branch (i.e. a regeneration is due). Needs fork access, like a
+# normal regeneration.
 #
 # Honors $OPENSCREEN_DIR (the working checkout it reads history from); defaults
 # to the sibling fork checkout, like setup-openscreen.sh / build.sh.
 set -euo pipefail
+
+VERIFY_ONLY=0
+if [[ "${1:-}" == "--verify-only" ]]; then
+	VERIFY_ONLY=1
+elif [[ -n "${1:-}" ]]; then
+	echo "unknown argument: $1 (only --verify-only is supported)" >&2
+	exit 2
+fi
 
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PIN_FILE="$HERE/openscreen.pin"
@@ -100,6 +113,28 @@ GOT="$(git -C "$WT" rev-parse 'HEAD^{tree}')"
 	echo "FAIL: applied tree ($GOT) != branch tree ($TREE) — refusing to write" >&2
 	exit 1
 }
+
+if [[ "$VERIFY_ONLY" == 1 ]]; then
+	# Compare the verified state against the committed artifacts. The patch is
+	# deterministic run-to-run (author/date pinned to the branch tip), so a byte
+	# compare is meaningful.
+	PATCHED="$(read_pin patched)"
+	ok=1
+	if [[ "$PATCHED" != "$TREE" ]]; then
+		echo "DRIFT: pin patched=$PATCHED != fork branch tree $TREE" >&2
+		ok=0
+	fi
+	if ! cmp -s "$TMP_PATCH" "$PATCH"; then
+		echo "DRIFT: committed $PATCH_REL differs from a fresh cut of $BRANCH_REF" >&2
+		ok=0
+	fi
+	if [[ "$ok" == 1 ]]; then
+		echo "OK: patch + pin are in sync with $BRANCH_REF (tree $TREE)"
+		exit 0
+	fi
+	echo "run: bash native/integration/regen-patch.sh (then commit patch + pin)" >&2
+	exit 1
+fi
 
 # 5) commit the verified artifacts: patch file + pin's patched= tree hash.
 mkdir -p "$(dirname "$PATCH")"

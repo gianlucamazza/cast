@@ -2,7 +2,12 @@
   "summary": {
     "en-US": "Cast a media URL or mirror the browser window/screen to a Chromecast, with a native openscreen backend and no third-party tools."
   },
+  "description": {
+    "en-US": "Casts media URLs, YouTube videos, and live window/screen mirrors (H.264, low latency) from LibreWolf/Firefox to a Chromecast on your LAN.\n\nIMPORTANT: this extension requires the open-source castbridge native daemon (BSD-3-Clause) installed on the same machine; without it the extension shows an actionable 'native host missing' error and does nothing else. Source code and install instructions: https://github.com/gianlucamazza/cast\n\nThe content script runs on all http(s) pages because detecting castable media on arbitrary sites is the core feature; it is read-only detection and sends nothing off the device. All communication stays on the local machine (native messaging) and your LAN (Cast protocol). No analytics, no remote servers."
+  },
   "categories": ["other"],
+  "homepage": "https://github.com/gianlucamazza/cast",
+  "support_url": "https://github.com/gianlucamazza/cast/issues",
   "version": {
     "license": "BSD-3-Clause"
   }

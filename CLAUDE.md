@@ -21,6 +21,7 @@ One C++ binary, two roles selected by flag (`castbridge_main.cc`): `--nm-host`
 ## Commands
 
 Extension (Node/web-ext):
+
 ```bash
 npm run lint            # web-ext lint -c web-ext-config.mjs
 npm run start           # launches LibreWolf with the extension loaded
@@ -29,27 +30,41 @@ npm run sign:unlisted   # needs AMO_JWT_ISSUER / AMO_JWT_SECRET
 ```
 
 Native daemon (builds **inside** an openscreen fork checkout, not standalone):
+
 ```bash
 bash native/integration/setup-openscreen.sh   # provision the fork (once; ~GB deps, slow)
 bash native/integration/build.sh               # -> <fork>/out/Default/castbridge
 bash native/integration/gen-clangd.sh          # fix editor/clangd include paths
 ```
+
 `$OPENSCREEN_DIR` (default `~/Workspace/tooling/openscreen-build/openscreen`) overrides the checkout.
 
 Install from source:
+
 ```bash
 bash install/install-host.sh   # native-messaging manifest + wrapper; then load extension/manifest.json via about:debugging
 ```
 
 ## Architecture notes
 
-- **There are no unit tests.** CI (`.github/workflows/ci.yml`) only runs
-  `web-ext lint`/`build` and `shellcheck` on `install/*.sh` + `native/integration/*.sh`.
-  Verify native changes by building; verify extension changes via lint + `web-ext run`.
+- **Native unit tests exist; CI cannot run them.** `native/castbridge/*_unittest.cc`
+  build as two gn targets inside the fork (CI can't provision the ~GB fork, so
+  they are a LOCAL pre-release gate — run them after native changes):
+
+  ```bash
+  ninja -C "$OPENSCREEN_DIR/out/Default" cast/castbridge:castbridge_unittests \
+    cast/castbridge:castbridge_controller_unittests
+  "$OPENSCREEN_DIR"/out/Default/castbridge_unittests
+  "$OPENSCREEN_DIR"/out/Default/castbridge_controller_unittests
+  ```
+
+  CI (`.github/workflows/ci.yml`) runs `web-ext lint`/`build`, locale/id-sync
+  checks, `shellcheck`, and native-sanity (script syntax + pin format). There
+  are no JS unit tests; verify extension changes via lint + `web-ext run`.
 
 - **Extension side**: `background/background.js` is the sole owner of the native
   port, the per-tab castability map (fed by `content/detect.js`), the toolbar
-  badge, and context menus. Popup and content scripts talk *only* to the
+  badge, and context menus. Popup and content scripts talk _only_ to the
   background page; only the background page talks to the native host. It speaks
   the daemon action protocol and consumes push events.
 
@@ -82,6 +97,7 @@ bash install/install-host.sh   # native-messaging manifest + wrapper; then load 
 ## Detailed docs
 
 Read these before non-trivial work on each area — they are kept current:
+
 - `native/castbridge/README.md` — subsystem table + full IPC protocol
 - `native/integration/README.md` — fork provisioning, pinned inputs, gn wiring
 - `README.md` — user-facing install, compatibility matrix, capabilities

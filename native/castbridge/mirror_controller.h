@@ -43,6 +43,9 @@ class MirrorController {
                           const std::string& device);
 
   void Stop();
+  // Stop without blocking the caller (safe from the IPC thread). The worker is
+  // tracked and joined in the destructor, so it cannot outlive this object.
+  void StopAsync();
   Status GetStatus();
 
  private:
@@ -57,12 +60,14 @@ class MirrorController {
   void Monitor(pid_t pid, uint64_t gen);
 
   std::function<void()> on_change_;
-  std::mutex lifecycle_mutex_;  // serializes Start/Stop (held across blocking ops)
-  std::mutex mutex_;            // guards pid_/gen_/status_ (fast; used by GetStatus)
+  std::mutex
+      lifecycle_mutex_;  // serializes Start/Stop (held across blocking ops)
+  std::mutex mutex_;     // guards pid_/gen_/status_ (fast; used by GetStatus)
   pid_t pid_ = -1;
-  uint64_t gen_ = 0;   // bumped on each start/stop to invalidate stale monitors
+  uint64_t gen_ = 0;  // bumped on each start/stop to invalidate stale monitors
   Status status_;
   std::thread monitor_;
+  std::thread async_stop_;  // in-flight StopAsync worker (joined in dtor)
 };
 
 }  // namespace castbridge

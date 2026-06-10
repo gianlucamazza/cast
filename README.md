@@ -83,7 +83,7 @@ For a warm discovery cache, optionally enable `install/castbridge.service`.
 
 ## Install permanently (LibreWolf)
 
-`about:debugging` only loads the extension *temporarily* — it is dropped when the
+`about:debugging` only loads the extension _temporarily_ — it is dropped when the
 browser restarts. For a permanent install you need an `.xpi`, and Firefox/LibreWolf
 require add-ons to be signed (or signature enforcement disabled). Two options:
 
@@ -114,20 +114,20 @@ otherwise the popup reports `nohost`.
 
 ## Compatibility
 
-| Capability        | Support                                                        |
-| ----------------- | -------------------------------------------------------------- |
-| URL cast (direct) | mp4/webm/ogg/mp3/…, plus HLS `.m3u8` / DASH `.mpd` links       |
-| YouTube           | native (TV's YouTube app via MDX + Lounge)                     |
+| Capability        | Support                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| URL cast (direct) | mp4/webm/ogg/mp3/…, plus HLS `.m3u8` / DASH `.mpd` links         |
+| YouTube           | native (TV's YouTube app via MDX + Lounge)                       |
 | Screen mirror     | any Wayland compositor (Hyprland today; portal/PipeWire planned) |
-| Window mirror     | **Hyprland only** (uses `hyprctl`); elsewhere use screen mirror |
-| DRM / MSE / blob: | not URL-castable (Netflix/Disney+/…) — mirror instead          |
+| Window mirror     | **Hyprland only** (uses `hyprctl`); elsewhere use screen mirror  |
+| DRM / MSE / blob: | not URL-castable (Netflix/Disney+/…) — mirror instead            |
 
 ## Use
 
 - **Cast a video**: open a page with a direct media URL (mp4/webm/…) or a
-  supported site → popup → *Cast this video*. Transport controls (play/pause/
+  supported site → popup → _Cast this video_. Transport controls (play/pause/
   seek/volume) appear while playing.
-- **Mirror**: popup → *Mirror this window* / *Mirror full screen*.
+- **Mirror**: popup → _Mirror this window_ / _Mirror full screen_.
 - **Pick a TV**: the device chip lists discovered Chromecasts; the choice is
   remembered.
 
@@ -142,12 +142,37 @@ npx web-ext lint -c web-ext-config.mjs
 npx web-ext run  -c web-ext-config.mjs   # launches LibreWolf with the extension
 ```
 
-CI (`.github/workflows/ci.yml`) lints/builds the extension and shellchecks the
-scripts on every push. Tagging `v*` runs `release.yml`, which signs the
-extension with `web-ext sign` (unlisted by default; `listed` via
-`workflow_dispatch` uses `amo-metadata.json`) and attaches the `.xpi` to the
-release. Set the `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` repo secrets first; locally
+Native unit tests build inside the fork and are the local pre-release gate:
+
+```bash
+ninja -C "$OPENSCREEN_DIR/out/Default" cast/castbridge:castbridge_unittests \
+  cast/castbridge:castbridge_controller_unittests
+"$OPENSCREEN_DIR"/out/Default/castbridge_unittests
+"$OPENSCREEN_DIR"/out/Default/castbridge_controller_unittests
+```
+
+CI (`.github/workflows/ci.yml`) lints/builds the extension, checks i18n parity
+and extension/native-host id sync, shellchecks the scripts, and sanity-checks
+the native build inputs (`openscreen.pin` format, script syntax) on every push.
+Tagging `v*` runs `release.yml`, which signs the extension with `web-ext sign`
+(unlisted by default; `listed` via `workflow_dispatch` uses
+`amo-metadata.json`) and attaches the `.xpi` to the release. Set the
+`AMO_JWT_ISSUER` / `AMO_JWT_SECRET` repo secrets first; locally
 `npm run sign:unlisted` does the same.
+
+## Release
+
+The version lives in three files that must move together: `package.json`,
+`extension/manifest.json`, and `packaging/aur/PKGBUILD` (`pkgver`, whose
+source URL pins the `v<version>` tag).
+
+1. Bump the version in all three files and add a `CHANGELOG.md` entry.
+2. If the fork branch changed, run
+   `bash native/integration/regen-patch.sh` and commit the patch + pin.
+3. Commit, then tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`
+   — `release.yml` signs the extension and attaches the `.xpi`.
+4. AUR: `makepkg --printsrcinfo > .SRCINFO` in the AUR repo and push the
+   updated `PKGBUILD`/`.SRCINFO`.
 
 ## License
 

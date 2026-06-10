@@ -16,7 +16,8 @@
   ];
   // Extensions the default media receiver can play from a direct URL, including
   // adaptive manifests (HLS .m3u8 / DASH .mpd) when exposed as a plain link.
-  const MEDIA_EXT = /\.(mp4|m4v|webm|ogg|ogv|mp3|m4a|aac|flac|wav|mov|m3u8|mpd)(\?|#|$)/i;
+  const MEDIA_EXT =
+    /\.(mp4|m4v|webm|ogg|ogv|mp3|m4a|aac|flac|wav|mov|m3u8|mpd)(\?|#|$)/i;
 
   function matches(list) {
     return list.some((re) => re.test(location.hostname));
@@ -43,7 +44,9 @@
     if (/(^|\.)youtube\.com$/.test(h)) {
       const v = new URLSearchParams(location.search).get("v");
       if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
-      const m = location.pathname.match(/\/(shorts|embed)\/([A-Za-z0-9_-]{11})/);
+      const m = location.pathname.match(
+        /\/(shorts|embed)\/([A-Za-z0-9_-]{11})/,
+      );
       if (m) return m[2];
     }
     return null;
@@ -76,7 +79,12 @@
     const ytId = youtubeVideoId();
     if (ytId) {
       return {
-        best: { kind: "youtube", videoId: ytId, startTime: youtubeStart(), title: document.title },
+        best: {
+          kind: "youtube",
+          videoId: ytId,
+          startTime: youtubeStart(),
+          title: document.title,
+        },
         count: 1,
         drm: false,
       };
@@ -117,7 +125,11 @@
 
     // 3) The page itself is a bare media file.
     if (MEDIA_EXT.test(location.pathname)) {
-      return { best: { kind: "media", castUrl: location.href, title: document.title }, count: 1, drm };
+      return {
+        best: { kind: "media", castUrl: location.href, title: document.title },
+        count: 1,
+        drm,
+      };
     }
 
     return { best: null, count: 0, drm: drmSeen };
@@ -130,7 +142,12 @@
     if (json === lastJson) return;
     lastJson = json;
     browser.runtime
-      .sendMessage({ type: "castability", best: result.best, count: result.count, drm: result.drm })
+      .sendMessage({
+        type: "castability",
+        best: result.best,
+        count: result.count,
+        drm: result.drm,
+      })
       .catch(() => {});
   }
 

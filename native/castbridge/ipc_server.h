@@ -7,6 +7,7 @@
 #define CAST_CASTBRIDGE_IPC_SERVER_H_
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <map>
@@ -17,8 +18,11 @@ namespace castbridge {
 
 class IpcServer {
  public:
-  // conn_id identifies the client connection; line is one JSON message.
-  using RequestHandler = std::function<void(int conn_id, const std::string& line)>;
+  // conn_id identifies the client connection; line is one JSON message. The id
+  // is monotonic (never an fd), so an async reply can never be misdelivered to
+  // a newer client that happened to reuse the same file descriptor.
+  using RequestHandler =
+      std::function<void(uint64_t conn_id, const std::string& line)>;
 
   explicit IpcServer(std::string socket_path);
   ~IpcServer();
@@ -32,8 +36,9 @@ class IpcServer {
   bool Run();
 
   // Thread-safe. Queue a JSON message (a newline is appended) to one client or
-  // to all clients respectively.
-  void Send(int conn_id, const std::string& json);
+  // to all clients respectively. Sending to a connection that has since closed
+  // is a no-op.
+  void Send(uint64_t conn_id, const std::string& json);
   void Broadcast(const std::string& json);
 
   // Thread-safe. Unblock Run() and shut the server down.
@@ -41,8 +46,10 @@ class IpcServer {
 
  private:
   struct Conn {
-    std::string in;             // accumulated inbound bytes (split on '\n')
-    std::deque<std::string> out;  // pending outbound frames (newline-terminated)
+    uint64_t id = 0;  // stable handle handed to the request handler
+    std::string in;   // accumulated inbound bytes (split on '\n')
+    std::deque<std::string>
+        out;  // pending outbound frames (newline-terminated)
     // The peer half-closed its write side (shutdown(SHUT_WR)) but may still be
     // reading: keep the connection open to deliver the response, but stop
     // polling it for input. Set after an EOF on read.
@@ -66,7 +73,9 @@ class IpcServer {
   int wake_fd_ = -1;  // eventfd
 
   std::mutex mutex_;
-  std::map<int, Conn> conns_;  // fd -> connection state (guarded)
+  std::map<int, Conn> conns_;         // fd -> connection state (guarded)
+  std::map<uint64_t, int> id_to_fd_;  // conn id -> live fd (guarded)
+  uint64_t next_conn_id_ = 0;         // guarded by mutex_
   std::atomic<bool> running_{false};
 };
 

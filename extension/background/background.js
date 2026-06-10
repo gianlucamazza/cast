@@ -14,10 +14,12 @@ const HOST_NAME = "it.gianlucamazza.castbridge";
 
 // --- native messaging port -------------------------------------------------
 
+const NATIVE_CALL_TIMEOUT_MS = 40000;
+
 let port = null;
 let nextId = 1;
 let connected = false; // are we currently talking to the daemon?
-const pending = new Map(); // id -> resolve
+const pending = new Map(); // id -> {resolve, timer}
 
 function ensurePort() {
   if (port) return port;
@@ -25,8 +27,9 @@ function ensurePort() {
   port.onMessage.addListener((msg) => {
     connected = true; // a reply/event proves the daemon is reachable
     if (msg && msg.id != null && pending.has(msg.id)) {
-      const resolve = pending.get(msg.id);
+      const { resolve, timer } = pending.get(msg.id);
       pending.delete(msg.id);
+      clearTimeout(timer);
       resolve(msg);
       return;
     }
@@ -35,7 +38,8 @@ function ensurePort() {
   port.onDisconnect.addListener(() => {
     const err = browser.runtime.lastError;
     const message = err ? err.message : "native host disconnected";
-    for (const resolve of pending.values()) {
+    for (const { resolve, timer } of pending.values()) {
+      clearTimeout(timer);
       resolve({ ok: false, error: { code: "disconnected", message } });
     }
     pending.clear();
@@ -55,7 +59,8 @@ function ensurePort() {
 
 // A disconnect message that means the host isn't installed / can't launch —
 // retrying won't help, so we surface an actionable error instead.
-const HOST_MISSING_RE = /no such native|not found|failed to (start|connect|execute|launch)/i;
+const HOST_MISSING_RE =
+  /no such native|not found|failed to (start|connect|execute|launch)/i;
 
 /** Send one request to the daemon; resolve with its {ok, data, error} reply. */
 function callOnce(action, args = {}) {
@@ -68,20 +73,24 @@ function callOnce(action, args = {}) {
       return;
     }
     const id = String(nextId++);
-    pending.set(id, resolve);
+    const timer = setTimeout(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        resolve({
+          ok: false,
+          error: { code: "timeout", message: "no response from host" },
+        });
+      }
+    }, NATIVE_CALL_TIMEOUT_MS);
+    pending.set(id, { resolve, timer });
     try {
       p.postMessage({ id, action, args });
     } catch (e) {
       pending.delete(id);
+      clearTimeout(timer);
       resolve({ ok: false, error: { code: "send", message: String(e) } });
       return;
     }
-    setTimeout(() => {
-      if (pending.has(id)) {
-        pending.delete(id);
-        resolve({ ok: false, error: { code: "timeout", message: "no response from host" } });
-      }
-    }, 40000);
   });
 }
 
@@ -94,7 +103,8 @@ async function call(action, args = {}, attempt = 0) {
   const reply = await callOnce(action, args);
   if (reply.ok || !reply.error) return reply;
 
-  const transient = reply.error.code === "disconnected" || reply.error.code === "send";
+  const transient =
+    reply.error.code === "disconnected" || reply.error.code === "send";
   const missing = HOST_MISSING_RE.test(reply.error.message || "");
 
   if (transient && !missing && attempt < 1) {
@@ -104,7 +114,8 @@ async function call(action, args = {}, attempt = 0) {
   }
   if (missing || reply.error.code === "noport") {
     reply.error.code = "nohost";
-    reply.error.message = "Native host not installed — run install/install-host.sh.";
+    reply.error.message =
+      "Native host not installed — run install/install-host.sh.";
   }
   return reply;
 }
@@ -113,6 +124,23 @@ async function call(action, args = {}, attempt = 0) {
 
 let session = { session: "idle", media: null, mirror: null };
 let devices = [];
+
+// Survive MV3 event-page suspension: mirror the session into storage.session so
+// a fresh page instance starts from the last known state instead of idle (the
+// periodic reconcile would otherwise leave the badge stale for up to a minute).
+function setSession(next) {
+  session = next;
+  browser.storage.session.set({ session: next }).catch(() => {});
+}
+browser.storage.session
+  .get("session")
+  .then(({ session: saved }) => {
+    if (saved && session.session === "idle") {
+      session = saved;
+      updateActiveBadge();
+    }
+  })
+  .catch(() => {});
 const castability = new Map(); // tabId -> aggregated {best, count, drm}
 const framesByTab = new Map(); // tabId -> Map(frameId -> {best, count, drm})
 
@@ -146,25 +174,31 @@ function handleEvent(msg) {
   if (!msg || !msg.type) return;
   if (msg.type === "session") {
     // Authoritative session state pushed by the daemon (start/stop/natural end).
-    session = msg.data || { session: "idle" };
+    setSession(msg.data || { session: "idle" });
     updateActiveBadge();
   } else if (msg.type === "media-status") {
-    // Live position only; update media sub-state without clobbering a
-    // mirror/youtube session.
-    if (session.session === "media" || (msg.data && session.session === "idle")) {
-      session = { session: msg.data ? "media" : "idle", media: msg.data, mirror: null };
+    // Live position for the URL receiver only — never clobber a mirror/youtube
+    // session. A null status while a media session is active means it ended.
+    if (
+      msg.data &&
+      (session.session === "media" || session.session === "idle")
+    ) {
+      setSession({ session: "media", media: msg.data, mirror: null });
       updateActiveBadge();
-    } else if (session.session === "media") {
-      session.media = msg.data;
+    } else if (!msg.data && session.session === "media") {
+      setSession({ session: "idle", media: null, mirror: null });
+      updateActiveBadge();
     }
   } else if (msg.type === "devices-changed") {
     devices = (msg.data && msg.data.candidates) || [];
   } else if (msg.type === "session-ended") {
-    session = { session: "idle", media: null, mirror: null };
+    setSession({ session: "idle", media: null, mirror: null });
     updateActiveBadge();
   }
   // Relay to the popup if it is open (ignored if no receiver).
-  browser.runtime.sendMessage({ type: "cast-event", event: msg }).catch(() => {});
+  browser.runtime
+    .sendMessage({ type: "cast-event", event: msg })
+    .catch(() => {});
 }
 
 // --- badge -----------------------------------------------------------------
@@ -195,7 +229,7 @@ async function reconcile() {
   try {
     const r = await call("status");
     if (r && r.ok && r.data) {
-      session = r.data;
+      setSession(r.data);
       updateActiveBadge();
     }
   } catch (_e) {
@@ -210,7 +244,11 @@ browser.alarms.onAlarm.addListener((alarm) => {
 function updateBadgeForTab(tabId) {
   let text = "";
   let color = "#5b6470";
-  if (session.session === "media" || session.session === "mirror" || session.session === "youtube") {
+  if (
+    session.session === "media" ||
+    session.session === "mirror" ||
+    session.session === "youtube"
+  ) {
     text = "▶";
     // Green while the daemon is reachable; muted grey when the connection has
     // dropped so a stale session never looks live.
@@ -228,12 +266,24 @@ function updateBadgeForTab(tabId) {
 
 // --- messaging hub (popup + content scripts) -------------------------------
 
+// Content scripts run in untrusted pages: only accept castability reports whose
+// `best` candidate has a well-formed shape; anything else is dropped so a
+// compromised page cannot smuggle arbitrary values toward the daemon.
+function validBest(best) {
+  if (best == null) return true;
+  if (typeof best !== "object" || typeof best.kind !== "string") return false;
+  if (best.kind === "youtube") {
+    return /^[A-Za-z0-9_-]{11}$/.test(best.videoId || "");
+  }
+  return typeof best.castUrl === "string" && /^https?:\/\//.test(best.castUrl);
+}
+
 browser.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || !msg.type) return;
 
   if (msg.type === "castability") {
     const tabId = sender.tab && sender.tab.id;
-    if (tabId == null) return;
+    if (tabId == null || !validBest(msg.best)) return;
     const fid = sender.frameId || 0;
     let frames = framesByTab.get(tabId);
     if (!frames) {
@@ -255,13 +305,13 @@ browser.runtime.onMessage.addListener((msg, sender) => {
         devices = reply.data.candidates || [];
       }
       if (reply.ok && msg.action === "status" && reply.data) {
-        session = reply.data;
+        setSession(reply.data);
         updateActiveBadge();
       }
       // Reflect stop immediately; the daemon also pushes a `session` event, but
       // updating here keeps the badge correct even if no event arrives.
       if (reply.ok && msg.action === "stop") {
-        session = { session: "idle", media: null, mirror: null };
+        setSession({ session: "idle", media: null, mirror: null });
         updateActiveBadge();
       }
       return reply;
@@ -269,7 +319,12 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   }
 
   if (msg.type === "get-state") {
-    return Promise.resolve({ session, devices, connected, castability: castability.get(msg.tabId) || null });
+    return Promise.resolve({
+      session,
+      devices,
+      connected,
+      castability: castability.get(msg.tabId) || null,
+    });
   }
 });
 
@@ -314,17 +369,26 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
       if (info.srcUrl && /^https?:/.test(info.srcUrl)) url = info.srcUrl;
       else if (best && best.castUrl) url = best.castUrl;
       if (!url) {
-        notify(browser.i18n.getMessage("notifCantCastTitle"), browser.i18n.getMessage("notifCantCastMsg"));
+        notify(
+          browser.i18n.getMessage("notifCantCastTitle"),
+          browser.i18n.getMessage("notifCantCastMsg"),
+        );
         return;
       }
       const r = await call("media-load", { deviceId, url, title });
       reportError(r, "notifCastFailedTitle");
     } else if (info.menuItemId === "mirror-window") {
-      const r = await call("mirror-window", { deviceId, selector: "librewolf" });
+      const r = await call("mirror-window", {
+        deviceId,
+        selector: "librewolf",
+      });
       reportError(r, "notifMirrorFailedTitle");
     }
   } catch (e) {
-    notify(browser.i18n.getMessage("notifCastErrorTitle"), String((e && e.message) || e));
+    notify(
+      browser.i18n.getMessage("notifCastErrorTitle"),
+      String((e && e.message) || e),
+    );
   }
 });
 
@@ -339,7 +403,10 @@ function reportError(reply, fallbackTitleKey) {
   if (reply.ok) return;
   const err = reply.error || {};
   const titleKey = NOTIF_TITLE[err.code] || fallbackTitleKey;
-  notify(browser.i18n.getMessage(titleKey), CastErrors.errorMessage(err.code, err.message));
+  notify(
+    browser.i18n.getMessage(titleKey),
+    CastErrors.errorMessage(err.code, err.message),
+  );
 }
 
 // --- tab tracking ----------------------------------------------------------
@@ -358,10 +425,12 @@ browser.tabs.onRemoved.addListener((tabId) => {
 });
 
 function notify(title, message) {
-  browser.notifications.create({
-    type: "basic",
-    iconUrl: browser.runtime.getURL("icons/cast-96.png"),
-    title,
-    message: message || "",
-  });
+  browser.notifications
+    .create({
+      type: "basic",
+      iconUrl: browser.runtime.getURL("icons/cast-96.png"),
+      title,
+      message: message || "",
+    })
+    .catch(() => {});
 }

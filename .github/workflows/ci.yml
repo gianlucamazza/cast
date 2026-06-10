@@ -14,18 +14,22 @@ jobs:
     name: Lint & build extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
       - run: npm install --no-save web-ext@^8.3.0
       - name: i18n parity
         run: node scripts/check-locales.mjs
+      - name: extension/native-host id sync
+        run: node scripts/check-ids.mjs
+      - name: prettier check
+        run: npx --yes prettier --check "extension/**/*.{js,json,css,html}" "scripts/*.mjs"
       - name: web-ext lint
         run: npx web-ext lint -c web-ext-config.mjs
       - name: web-ext build
         run: npx web-ext build -c web-ext-config.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: extension-xpi
           path: .web-ext-artifacts/*.zip
@@ -38,9 +42,36 @@ jobs:
     name: Shellcheck scripts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck --severity=error \
             install/*.sh native/integration/*.sh
+
+  native-sanity:
+    name: Native build inputs sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: bash syntax
+        run: |
+          for f in install/*.sh native/integration/*.sh; do
+            bash -n "$f"
+          done
+      - name: clang-format check
+        run: |
+          clang-format --dry-run --Werror \
+            native/castbridge/*.cc native/castbridge/*.h
+      - name: openscreen.pin format
+        # The provisioning scripts read these keys; a missing one fails at a
+        # user's machine otherwise. (Full patch<->fork verification needs fork
+        # SSH access: run `regen-patch.sh --verify-only` locally for that.)
+        run: |
+          for key in fork fork_branch pin patch patched gn_args; do
+            grep -qE "^${key}=." native/integration/openscreen.pin \
+              || { echo "openscreen.pin: missing ${key}="; exit 1; }
+          done
+          patch_rel=$(grep -E '^patch=' native/integration/openscreen.pin | cut -d= -f2-)
+          [[ -f "native/integration/$patch_rel" ]] \
+            || { echo "openscreen.pin: patch file $patch_rel not in repo"; exit 1; }

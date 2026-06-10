@@ -9,7 +9,7 @@
 # ~GB) and compiles it — this downloads at build time and takes a while. The
 # extension itself ships separately via AMO.
 pkgname=castbridge
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Native Chromecast backend for the Cast browser extension (openscreen Cast Streaming)"
 arch=('x86_64')
@@ -47,13 +47,11 @@ package() {
 	install -Dm755 "$out/castbridge"  "$pkgdir/usr/bin/castbridge"
 	install -Dm755 "$out/cast_sender" "$pkgdir/usr/bin/cast_sender"
 
-	# Wrapper the browser launches (the manifest path must exec --nm-host).
-	install -dm755 "$pkgdir/usr/bin"
-	cat >"$pkgdir/usr/bin/castbridge-nm-host" <<'EOF'
-#!/usr/bin/env bash
-exec /usr/bin/castbridge --nm-host
-EOF
-	chmod 755 "$pkgdir/usr/bin/castbridge-nm-host"
+	# Wrapper the browser launches (the manifest path must exec --nm-host),
+	# generated from the shared template in install/.
+	sed "s|@BIN@|/usr/bin/castbridge|" install/castbridge-nm-host.sh.in \
+		>"$srcdir/castbridge-nm-host"
+	install -Dm755 "$srcdir/castbridge-nm-host" "$pkgdir/usr/bin/castbridge-nm-host"
 
 	# Native-messaging manifest, system-wide, for Firefox and LibreWolf.
 	local host="it.gianlucamazza.castbridge"

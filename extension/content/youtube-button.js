@@ -19,14 +19,14 @@
   }
 
   let casting = false;
-  let currentYt = null;        // last session.youtube payload for THIS tab's video
-  let castDeviceName = "";     // friendly device name for the overlay header
-  let overlayHidden = false;   // user dismissed the overlay while still casting
+  let currentYt = null; // last session.youtube payload for THIS tab's video
+  let castDeviceName = ""; // friendly device name for the overlay header
+  let overlayHidden = false; // user dismissed the overlay while still casting
 
   // Scrubber position interpolation (the daemon pushes only on state change).
   let seekDragging = false;
-  let posBase = 0;             // seconds at the last reconcile
-  let posBaseAt = 0;          // Date.now() at the last reconcile
+  let posBase = 0; // seconds at the last reconcile
+  let posBaseAt = 0; // Date.now() at the last reconcile
   let durTotal = 0;
   let ytPlaying = false;
   let ovTicker = null;
@@ -53,7 +53,7 @@
     p.setAttribute("fill", "#fff");
     p.setAttribute(
       "d",
-      "M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"
+      "M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z",
     );
     svg.appendChild(p);
     return svg;
@@ -182,7 +182,11 @@
     const bar = document.querySelector(".ytp-right-controls");
     if (!bar || document.getElementById(BTN_ID)) return;
     injectStyle();
-    const btn = el("button", { id: BTN_ID, class: "ytp-button opencast-button" }, svgCast());
+    const btn = el(
+      "button",
+      { id: BTN_ID, class: "ytp-button opencast-button" },
+      svgCast(),
+    );
     updateButton(btn);
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -217,7 +221,8 @@
 
   function onOutside(e) {
     const p = document.getElementById(POP_ID);
-    if (p && !p.contains(e.target) && !e.target.closest(`#${BTN_ID}`)) closePopover();
+    if (p && !p.contains(e.target) && !e.target.closest(`#${BTN_ID}`))
+      closePopover();
   }
 
   function closePopover() {
@@ -232,11 +237,22 @@
       closePopover();
       return;
     }
-    const player = document.querySelector(".html5-video-player") || document.getElementById("movie_player");
+    const player =
+      document.querySelector(".html5-video-player") ||
+      document.getElementById("movie_player");
     if (!player) return;
     injectStyle();
-    const body = el("div", { class: "oc-body" }, el("div", { class: "oc-msg", text: msg("scanning") }));
-    const pop = el("div", { id: POP_ID }, el("div", { class: "oc-title", text: msg("ytPickTitle") }), body);
+    const body = el(
+      "div",
+      { class: "oc-body" },
+      el("div", { class: "oc-msg", text: msg("scanning") }),
+    );
+    const pop = el(
+      "div",
+      { id: POP_ID },
+      el("div", { class: "oc-title", text: msg("ytPickTitle") }),
+      body,
+    );
     pop.addEventListener("click", (e) => e.stopPropagation());
     player.appendChild(pop);
     document.addEventListener("keydown", onKey, true);
@@ -251,18 +267,33 @@
     body.replaceChildren();
     if (!r || !r.ok) {
       const e = (r && r.error) || {};
-      body.appendChild(el("div", { class: "oc-msg", text: CastErrors.errorMessage(e.code, e.message) }));
+      body.appendChild(
+        el("div", {
+          class: "oc-msg",
+          text: CastErrors.errorMessage(e.code, e.message),
+        }),
+      );
       return;
     }
     const devices = (r.data && r.data.candidates) || [];
     if (!devices.length) {
-      body.appendChild(el("div", { class: "oc-msg", text: msg("noDevicesFound") }));
+      body.appendChild(
+        el("div", { class: "oc-msg", text: msg("noDevicesFound") }),
+      );
       return;
     }
     for (const d of devices) {
-      const item = el("div", { class: "oc-item", role: "button", tabindex: "0" }, el("span", { text: d.name }));
-      if (d.model) item.appendChild(el("span", { class: "oc-model", text: d.model }));
-      if (d.busy) item.appendChild(el("span", { class: "oc-busy", text: msg("deviceBusy") }));
+      const item = el(
+        "div",
+        { class: "oc-item", role: "button", tabindex: "0" },
+        el("span", { text: d.name }),
+      );
+      if (d.model)
+        item.appendChild(el("span", { class: "oc-model", text: d.model }));
+      if (d.busy)
+        item.appendChild(
+          el("span", { class: "oc-busy", text: msg("deviceBusy") }),
+        );
       const go = () => castTo(d.id, d.name, d.busy);
       item.addEventListener("click", go);
       item.addEventListener("keydown", (e) => {
@@ -281,7 +312,11 @@
   function pauseLocalVideo() {
     const v = document.querySelector(".html5-video-player video, video");
     if (v && !v.paused) {
-      try { v.pause(); } catch (_) { /* ignore */ }
+      try {
+        v.pause();
+      } catch (_) {
+        /* ignore */
+      }
     }
   }
 
@@ -296,12 +331,21 @@
     if (busy && !casting && !confirmed) {
       const body = document.querySelector(`#${POP_ID} .oc-body`);
       if (body) {
-        body.replaceChildren(el("div", { class: "oc-msg", text: msg("confirmTakeover") }));
-        const ok = el("div", { class: "oc-item", role: "button", tabindex: "0" }, el("span", { text: msg("replace") }));
+        body.replaceChildren(
+          el("div", { class: "oc-msg", text: msg("confirmTakeover") }),
+        );
+        const ok = el(
+          "div",
+          { class: "oc-item", role: "button", tabindex: "0" },
+          el("span", { text: msg("replace") }),
+        );
         const go = () => castTo(deviceId, deviceName, busy, true);
         ok.addEventListener("click", go);
         ok.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            go();
+          }
         });
         body.appendChild(ok);
       }
@@ -309,7 +353,11 @@
     }
     castDeviceName = deviceName || "";
     browser.storage.local.set({ deviceId, deviceName: castDeviceName });
-    const r = await host("youtube-load", { deviceId, videoId: vid, currentTime: currentTime() }).catch(() => null);
+    const r = await host("youtube-load", {
+      deviceId,
+      videoId: vid,
+      currentTime: currentTime(),
+    }).catch(() => null);
     if (r && r.ok) {
       casting = true;
       updateButton();
@@ -320,7 +368,12 @@
     const body = document.querySelector(`#${POP_ID} .oc-body`);
     if (body) {
       const e = (r && r.error) || {};
-      body.replaceChildren(el("div", { class: "oc-msg", text: CastErrors.errorMessage(e.code, e.message) }));
+      body.replaceChildren(
+        el("div", {
+          class: "oc-msg",
+          text: CastErrors.errorMessage(e.code, e.message),
+        }),
+      );
     }
   }
 
@@ -331,12 +384,16 @@
     if (!ov) {
       // Overlay gone (e.g. the player was re-rendered out from under us): stop
       // the orphaned ticker instead of firing every second forever.
-      if (ovTicker) { clearInterval(ovTicker); ovTicker = null; }
+      if (ovTicker) {
+        clearInterval(ovTicker);
+        ovTicker = null;
+      }
       return;
     }
     if (ov.style.display === "none") return;
     let p = posBase;
-    if (ytPlaying && !seekDragging) p = posBase + (Date.now() - posBaseAt) / 1000;
+    if (ytPlaying && !seekDragging)
+      p = posBase + (Date.now() - posBaseAt) / 1000;
     if (durTotal > 0) p = Math.min(p, durTotal);
     const seek = ov.querySelector(".oc-ov-seek");
     if (!seekDragging) {
@@ -350,7 +407,9 @@
   function ensureOverlay() {
     let ov = document.getElementById(OV_ID);
     if (ov) return ov;
-    const player = document.querySelector(".html5-video-player") || document.getElementById("movie_player");
+    const player =
+      document.querySelector(".html5-video-player") ||
+      document.getElementById("movie_player");
     if (!player) return null;
     injectStyle();
 
@@ -358,20 +417,32 @@
     const head = el("div", { class: "oc-ov-head" }, svgCast(), dev);
     const title = el("div", { class: "oc-ov-title" });
 
-    const pp = el("button", { class: "oc-ov-btn oc-ov-pp", "aria-label": msg("pause") }, svgIcon(ICON_PAUSE));
+    const pp = el(
+      "button",
+      { class: "oc-ov-btn oc-ov-pp", "aria-label": msg("pause") },
+      svgIcon(ICON_PAUSE),
+    );
     pp.addEventListener("click", (e) => {
       e.stopPropagation();
-      ctl(ytPlaying ? "pause" : "play");  // session push reconciles the icon
+      ctl(ytPlaying ? "pause" : "play"); // session push reconciles the icon
     });
 
     const pos = el("span", { class: "oc-ov-time oc-ov-pos", text: "0:00" });
     const dur = el("span", { class: "oc-ov-time oc-ov-dur", text: "0:00" });
     const seek = el("input", {
-      type: "range", class: "oc-ov-seek", min: "0", max: "100", value: "0",
+      type: "range",
+      class: "oc-ov-seek",
+      min: "0",
+      max: "100",
+      value: "0",
       "aria-label": msg("seek"),
     });
-    seek.addEventListener("pointerdown", () => { seekDragging = true; });
-    seek.addEventListener("input", () => { pos.textContent = fmt(Number(seek.value)); });
+    seek.addEventListener("pointerdown", () => {
+      seekDragging = true;
+    });
+    seek.addEventListener("input", () => {
+      pos.textContent = fmt(Number(seek.value));
+    });
     seek.addEventListener("change", () => {
       const v = Number(seek.value);
       posBase = v;
@@ -379,14 +450,25 @@
       // Keep the slider locked until the daemon acks the seek, so an in-flight
       // `session` push can't snap it back to the pre-seek position. Unlock on a
       // timeout too, in case the reply never arrives.
-      const unlock = () => { seekDragging = false; };
+      const unlock = () => {
+        seekDragging = false;
+      };
       let done = false;
-      const once = () => { if (!done) { done = true; unlock(); } };
+      const once = () => {
+        if (!done) {
+          done = true;
+          unlock();
+        }
+      };
       ctl("seek", v).then(once);
       setTimeout(once, 1500);
     });
 
-    const mute = el("button", { class: "oc-ov-btn oc-ov-mute", "aria-label": msg("mute") }, svgIcon(ICON_VOL));
+    const mute = el(
+      "button",
+      { class: "oc-ov-btn oc-ov-mute", "aria-label": msg("mute") },
+      svgIcon(ICON_VOL),
+    );
     let muted = false;
     mute.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -396,12 +478,19 @@
       ctl("mute", muted ? 1 : 0);
     });
     const vol = el("input", {
-      type: "range", class: "oc-ov-vol", min: "0", max: "100", value: "100",
+      type: "range",
+      class: "oc-ov-vol",
+      min: "0",
+      max: "100",
+      value: "100",
       "aria-label": msg("volume"),
     });
     vol.addEventListener("input", () => ctl("volume", Number(vol.value) / 100));
 
-    const stop = el("button", { class: "oc-ov-stop", text: msg("ytStopCasting") });
+    const stop = el("button", {
+      class: "oc-ov-stop",
+      text: msg("ytStopCasting"),
+    });
     stop.addEventListener("click", (e) => {
       e.stopPropagation();
       host("stop").catch(() => {});
@@ -414,7 +503,10 @@
     ov = el("div", { id: OV_ID }, panel);
     // A click on the dim backdrop (not the panel) hides the overlay; the
     // in-player Cast button brings it back. Stop is only via the panel button.
-    ov.addEventListener("click", () => { overlayHidden = true; hideOverlay(); });
+    ov.addEventListener("click", () => {
+      overlayHidden = true;
+      hideOverlay();
+    });
     player.appendChild(ov);
     return ov;
   }
@@ -424,7 +516,7 @@
     if (!ov || !y) return;
     const name = castDeviceName || msg("ytThisTv");
     ov.querySelector(".oc-ov-dev").textContent =
-      browser.i18n.getMessage("ytCastingTo", [name]) || ("▶ " + name);
+      browser.i18n.getMessage("ytCastingTo", [name]) || "▶ " + name;
     ov.querySelector(".oc-ov-title").textContent = y.title || msg("youtube");
     ytPlaying = y.state === "PLAYING";
     const pp = ov.querySelector(".oc-ov-pp");
@@ -448,14 +540,20 @@
   }
 
   function hideOverlay() {
-    if (ovTicker) { clearInterval(ovTicker); ovTicker = null; }
+    if (ovTicker) {
+      clearInterval(ovTicker);
+      ovTicker = null;
+    }
     const ov = document.getElementById(OV_ID);
     if (ov) ov.style.display = "none";
   }
 
   function removeOverlay() {
     overlayHidden = false;
-    if (ovTicker) { clearInterval(ovTicker); ovTicker = null; }
+    if (ovTicker) {
+      clearInterval(ovTicker);
+      ovTicker = null;
+    }
     const ov = document.getElementById(OV_ID);
     if (ov) ov.remove();
   }
@@ -463,7 +561,8 @@
   // Re-evaluate overlay presence after SPA navigation / player re-render.
   function syncOverlay() {
     if (casting && currentYt && currentYt.videoId === videoId()) {
-      if (!overlayHidden && !document.getElementById(OV_ID)) showOverlay(currentYt);
+      if (!overlayHidden && !document.getElementById(OV_ID))
+        showOverlay(currentYt);
     } else {
       removeOverlay();
     }
@@ -483,10 +582,13 @@
         // pause the local player and resolve the device name for the header.
         pauseLocalVideo();
         if (!castDeviceName) {
-          browser.storage.local.get("deviceName").then(({ deviceName }) => {
-            castDeviceName = deviceName || "";
-            if (!overlayHidden) renderOverlay(currentYt);
-          }).catch(() => {});
+          browser.storage.local
+            .get("deviceName")
+            .then(({ deviceName }) => {
+              castDeviceName = deviceName || "";
+              if (!overlayHidden) renderOverlay(currentYt);
+            })
+            .catch(() => {});
         }
       }
       if (!overlayHidden) showOverlay(s.youtube);
@@ -510,14 +612,19 @@
     }
   });
 
-  host("status").then((r) => {
-    if (r && r.ok) applySession(r.data);
-  }).catch(() => {});
+  host("status")
+    .then((r) => {
+      if (r && r.ok) applySession(r.data);
+    })
+    .catch(() => {});
 
   // --- lifecycle (SPA navigation + player re-render) ------------------------
 
   injectButton();
-  const onNavigate = () => { injectButton(); syncOverlay(); };
+  const onNavigate = () => {
+    injectButton();
+    syncOverlay();
+  };
   window.addEventListener("yt-navigate-finish", onNavigate, true);
   window.addEventListener("yt-page-data-updated", onNavigate, true);
   const mo = new MutationObserver(() => {

@@ -127,23 +127,21 @@ TEST_F(IpcServerTest, SynchronousRequestGetsResponse) {
   const int c = ConnectClient(path_);
   ASSERT_GE(c, 0);
   const std::string req = "{\"id\":1}\n";
-  ASSERT_EQ(write(c, req.data(), req.size()),
-            static_cast<ssize_t>(req.size()));
+  ASSERT_EQ(write(c, req.data(), req.size()), static_cast<ssize_t>(req.size()));
   const std::string resp = ReadLine(c);
   EXPECT_NE(resp.find("\"echo\""), std::string::npos);
   close(c);
 }
 
 // Regression: a one-shot client half-closes (shutdown(SHUT_WR)) right after
-// writing, then waits for the reply. The response is produced LATER (as an async
-// controller completion would be). It must still reach the client.
+// writing, then waits for the reply. The response is produced LATER (as an
+// async controller completion would be). It must still reach the client.
 TEST_F(IpcServerTest, OneShotHalfCloseReceivesLateResponse) {
   StartServer(RecordingHandler());
   const int c = ConnectClient(path_);
   ASSERT_GE(c, 0);
   const std::string req = "{\"do\":\"x\"}\n";
-  ASSERT_EQ(write(c, req.data(), req.size()),
-            static_cast<ssize_t>(req.size()));
+  ASSERT_EQ(write(c, req.data(), req.size()), static_cast<ssize_t>(req.size()));
   shutdown(c, SHUT_WR);  // signal "request done", keep the read side open
 
   ASSERT_TRUE(WaitForLines(1)) << "request was not dispatched";
@@ -171,8 +169,7 @@ TEST_F(IpcServerTest, RequestDispatchedEvenIfPeerClosesImmediately) {
   const int c = ConnectClient(path_);
   ASSERT_GE(c, 0);
   const std::string req = "{\"fire\":1}\n";
-  ASSERT_EQ(write(c, req.data(), req.size()),
-            static_cast<ssize_t>(req.size()));
+  ASSERT_EQ(write(c, req.data(), req.size()), static_cast<ssize_t>(req.size()));
   close(c);  // full close right after the write
 
   ASSERT_TRUE(WaitForLines(1))
@@ -181,14 +178,14 @@ TEST_F(IpcServerTest, RequestDispatchedEvenIfPeerClosesImmediately) {
   EXPECT_EQ(lines_[0], "{\"fire\":1}");
 }
 
-// Two newline-delimited requests in a single write are both dispatched, in order.
+// Two newline-delimited requests in a single write are both dispatched, in
+// order.
 TEST_F(IpcServerTest, PipelinedRequestsBothDispatched) {
   StartServer(RecordingHandler());
   const int c = ConnectClient(path_);
   ASSERT_GE(c, 0);
   const std::string req = "a\nb\n";
-  ASSERT_EQ(write(c, req.data(), req.size()),
-            static_cast<ssize_t>(req.size()));
+  ASSERT_EQ(write(c, req.data(), req.size()), static_cast<ssize_t>(req.size()));
   ASSERT_TRUE(WaitForLines(2));
   std::lock_guard<std::mutex> lock(mu_);
   EXPECT_EQ(lines_[0], "a");

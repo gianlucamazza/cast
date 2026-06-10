@@ -1,9 +1,9 @@
 // Orchestrates native YouTube casting: resolves the screenId over the Cast
 // channel (YouTubeCastClient, on the TaskRunner thread), then drives playback
-// via the Lounge HTTP API (YouTubeLounge). All Lounge calls run on ONE dedicated
-// worker thread (a job queue) so they never block the IPC/TaskRunner threads and
-// the session state (rid/ofs/sid) stays monotonic and single-threaded. One
-// active session at a time.
+// via the Lounge HTTP API (YouTubeLounge). All Lounge calls run on ONE
+// dedicated worker thread (a job queue) so they never block the IPC/TaskRunner
+// threads and the session state (rid/ofs/sid) stays monotonic and
+// single-threaded. One active session at a time.
 #ifndef CAST_CASTBRIDGE_YOUTUBE_CONTROLLER_H_
 #define CAST_CASTBRIDGE_YOUTUBE_CONTROLLER_H_
 
@@ -35,7 +35,10 @@ class YouTubeController {
   // Fired when the parsed playback state changes (PLAYING <-> PAUSED, etc.).
   void set_on_status(StatusBroadcast cb) { on_status_ = std::move(cb); }
 
-  void LoadAsync(std::string ip, std::string video_id, double start_time, Completion done);
+  void LoadAsync(std::string ip,
+                 std::string video_id,
+                 double start_time,
+                 Completion done);
   void ControlAsync(std::string cmd, double value, Completion done);
   void StopAsync(Completion done);
 

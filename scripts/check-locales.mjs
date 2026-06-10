@@ -40,4 +40,6 @@ for (const lang of langs.filter((l) => l !== DEFAULT)) {
 }
 
 if (failed) process.exit(1);
-console.log(`i18n parity OK — ${langs.length} locales, ${base.size} keys each.`);
+console.log(
+  `i18n parity OK — ${langs.length} locales, ${base.size} keys each.`,
+);
