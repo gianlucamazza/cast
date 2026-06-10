@@ -1,5 +1,9 @@
 # Cast — LibreWolf/Firefox extension + native openscreen backend
 
+[![CI](https://github.com/gianlucamazza/cast/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/cast/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gianlucamazza/cast)](https://github.com/gianlucamazza/cast/releases)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+
 Cast a media URL or mirror the browser window/screen to a Chromecast, entirely
 from the browser. The backend is a native C++ daemon (`castbridge`) built on the
 **openscreen** Cast fork — it does mDNS discovery, drives the default media

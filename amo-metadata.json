@@ -13,6 +13,7 @@
     "en-US": "https://github.com/gianlucamazza/cast/issues"
   },
   "version": {
+    "approval_notes": "This extension is a thin UI over a native companion daemon (castbridge) reached via native messaging; without it, every action shows a 'native host missing' error and nothing else happens. To test the full flow you need Linux + the daemon built from https://github.com/gianlucamazza/cast (install/install-host.sh) and a Chromecast on the LAN. Without the daemon you can still verify: the popup renders, the content script only reads the DOM (content/detect.js, detection only), no remote endpoints are contacted by the extension itself (all traffic goes browser->native messaging->LAN). The broad http(s) content-script match exists because detecting castable <video>/media on arbitrary sites is the core feature; the script injects UI only on youtube.com. No analytics, no data collection (data_collection_permissions: none).",
     "custom_license": {
       "name": {
         "en-US": "BSD 3-Clause License"
