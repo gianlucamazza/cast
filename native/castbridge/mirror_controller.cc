@@ -74,6 +74,9 @@ std::string TailFile(const std::string& path, size_t max) {
 }  // namespace
 
 MirrorController::~MirrorController() {
+  if (async_stop_.joinable()) {
+    async_stop_.join();
+  }
   Stop();
 }
 
@@ -293,6 +296,13 @@ void MirrorController::StopInternal() {
 void MirrorController::Stop() {
   std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
   StopInternal();
+}
+
+void MirrorController::StopAsync() {
+  if (async_stop_.joinable()) {
+    async_stop_.join();  // settle a previous in-flight stop first
+  }
+  async_stop_ = std::thread([this] { Stop(); });
 }
 
 MirrorController::Status MirrorController::GetStatus() {

@@ -118,7 +118,9 @@ bool IpcServer::Run() {
         }
         SetNonBlocking(cfd);
         std::lock_guard<std::mutex> lock(mutex_);
-        conns_[cfd];
+        Conn& c = conns_[cfd];
+        c.id = ++next_conn_id_;
+        id_to_fd_[c.id] = cfd;
       }
     }
 
@@ -135,9 +137,9 @@ bool IpcServer::Run() {
         }
       }
 
-      // Readable data and/or hangup. Always drain and dispatch buffered requests
-      // BEFORE any teardown: a request that arrived together with EOF must still
-      // run (and, for a half-closed peer, be answered).
+      // Readable data and/or hangup. Always drain and dispatch buffered
+      // requests BEFORE any teardown: a request that arrived together with EOF
+      // must still run (and, for a half-closed peer, be answered).
       if (re & (POLLIN | POLLHUP | POLLERR)) {
         const bool peer_gone = DrainReadable(fd);
         DispatchLines(fd);
@@ -167,6 +169,7 @@ bool IpcServer::Run() {
     close(fd);
   }
   conns_.clear();
+  id_to_fd_.clear();
   return true;
 }
 
@@ -226,6 +229,7 @@ bool IpcServer::DrainReadable(int fd) {
 void IpcServer::DispatchLines(int fd) {
   for (;;) {
     std::string line;
+    uint64_t conn_id = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = conns_.find(fd);
@@ -238,9 +242,10 @@ void IpcServer::DispatchLines(int fd) {
       }
       line = it->second.in.substr(0, pos);
       it->second.in.erase(0, pos + 1);
+      conn_id = it->second.id;
     }
     if (!line.empty() && handler_) {
-      handler_(fd, line);
+      handler_(conn_id, line);
     }
   }
 }
@@ -253,10 +258,14 @@ void IpcServer::QueueLocked(int fd, const std::string& json) {
   it->second.out.push_back(json + "\n");
 }
 
-void IpcServer::Send(int conn_id, const std::string& json) {
+void IpcServer::Send(uint64_t conn_id, const std::string& json) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    QueueLocked(conn_id, json);
+    auto it = id_to_fd_.find(conn_id);
+    if (it == id_to_fd_.end()) {
+      return;  // client gone; the reply is undeliverable
+    }
+    QueueLocked(it->second, json);
   }
   Wake();
 }
@@ -295,6 +304,7 @@ void IpcServer::CloseConn(int fd) {
   auto it = conns_.find(fd);
   if (it != conns_.end()) {
     close(fd);
+    id_to_fd_.erase(it->second.id);
     conns_.erase(it);
   }
 }

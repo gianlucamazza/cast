@@ -4,8 +4,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <cstdlib>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <regex>
 #include <string>
@@ -49,14 +50,16 @@ std::string RunCurl(std::vector<std::string> args,
 
   int pipefd[2];
   if (pipe(pipefd) != 0) {
-    if (error) *error = "pipe failed";
+    if (error)
+      *error = "pipe failed";
     return "";
   }
   pid_t pid = fork();
   if (pid < 0) {
     close(pipefd[0]);
     close(pipefd[1]);
-    if (error) *error = "fork failed";
+    if (error)
+      *error = "fork failed";
     return "";
   }
   if (pid == 0) {
@@ -99,8 +102,32 @@ std::string RunCurl(std::vector<std::string> args,
 }
 
 std::vector<std::string> BaseArgs() {
-  return {"-s", "--max-time", "15", "-X", "POST", "-H",
+  return {"-s",
+          "--max-time",
+          "15",
+          "-X",
+          "POST",
+          "-H",
           "Origin: https://www.youtube.com"};
+}
+
+// Percent-encode a value for a URL query string. Lounge session ids are
+// normally URL-safe already; this guards against a hostile/odd value
+// corrupting the request line.
+std::string UrlEncode(const std::string& v) {
+  static const char kHex[] = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(v.size());
+  for (unsigned char c : v) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out.push_back(static_cast<char>(c));
+    } else {
+      out.push_back('%');
+      out.push_back(kHex[c >> 4]);
+      out.push_back(kHex[c & 15]);
+    }
+  }
+  return out;
 }
 
 // Whether raw poll frames should be dumped to the log for protocol discovery.
@@ -112,14 +139,20 @@ bool RawLogEnabled() {
 // Map the numeric Lounge playerState to the URL-receiver vocabulary so the
 // extension treats YouTube and the default receiver identically.
 //   -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
-// 1081 was observed on a real TV during ad playback (content is playing) — treat
-// it as PLAYING so the UI doesn't get stuck on BUFFERING through the pre-roll.
+// 1081 was observed on a real TV during ad playback (content is playing) —
+// treat it as PLAYING so the UI doesn't get stuck on BUFFERING through the
+// pre-roll.
 std::string MapState(const std::string& code) {
-  if (code == "1" || code == "1081") return "PLAYING";
-  if (code == "2") return "PAUSED";
-  if (code == "3") return "BUFFERING";
-  if (code == "0") return "IDLE";
-  if (code == "-1" || code == "5") return "BUFFERING";  // cued/unstarted
+  if (code == "1" || code == "1081")
+    return "PLAYING";
+  if (code == "2")
+    return "PAUSED";
+  if (code == "3")
+    return "BUFFERING";
+  if (code == "0")
+    return "IDLE";
+  if (code == "-1" || code == "5")
+    return "BUFFERING";  // cued/unstarted
   return "";
 }
 
@@ -172,12 +205,14 @@ std::string YouTubeLounge::GetToken(const std::string& screen_id,
   std::string errs;
   const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
   if (!reader->parse(resp.data(), resp.data() + resp.size(), &root, &errs)) {
-    if (error) *error = "token parse failed";
+    if (error)
+      *error = "token parse failed";
     return "";
   }
   const Json::Value& screens = root["screens"];
   if (!screens.isArray() || screens.empty()) {
-    if (error) *error = "no screens in token response";
+    if (error)
+      *error = "no screens in token response";
     return "";
   }
   return screens[0].get("loungeToken", "").asString();
@@ -215,9 +250,8 @@ std::string YouTubeLounge::Bind(std::string* error) {
   if (std::regex_search(resp, m, g_re)) {
     gsession = m[1];
   }
-  const bool has_screen =
-      resp.find("LOUNGE_SCREEN") != std::string::npos ||
-      resp.find("loungeStatus") != std::string::npos;
+  const bool has_screen = resp.find("LOUNGE_SCREEN") != std::string::npos ||
+                          resp.find("loungeStatus") != std::string::npos;
   Log("Bind http=" + std::to_string(code) + " sid=" + sid +
       " gsession=" + gsession + " screen=" + (has_screen ? "yes" : "no"));
   if (sid.empty() || gsession.empty()) {
@@ -255,11 +289,12 @@ std::string YouTubeLounge::SendCommand(
     args.push_back(f);
   }
   args.push_back(std::string(kBindUrl) + "?RID=" + std::to_string(rid_++) +
-                 "&SID=" + sid + "&gsessionid=" + gsession +
-                 "&VER=8&CVER=1");
+                 "&SID=" + UrlEncode(sid) +
+                 "&gsessionid=" + UrlEncode(gsession) + "&VER=8&CVER=1");
   int code = 0;
   const std::string resp = RunCurl(args, &code, error);
-  Log("SendCommand http=" + std::to_string(code) + " body=" + resp.substr(0, 120));
+  Log("SendCommand http=" + std::to_string(code) +
+      " body=" + resp.substr(0, 120));
   if (http_code) {
     *http_code = code;
   }
@@ -278,7 +313,8 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
     gsession = gsessionid_;
   }
   if (sid.empty() || gsession.empty()) {
-    if (error) *error = "no lounge session";
+    if (error)
+      *error = "no lounge session";
     return PollResult::kError;
   }
 
@@ -286,22 +322,28 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
   // event index we have acknowledged, so we only get newer frames.
   const int aid = aid_.load();
   std::vector<std::string> args = {
-      "-s", "--max-time", "30", "-H", "Origin: https://www.youtube.com",
-      "-H", "X-YouTube-LoungeId-Token: " + token,
-      std::string(kBindUrl) + "?RID=rpc&SID=" + sid + "&gsessionid=" + gsession +
-          "&AID=" + std::to_string(aid) +
+      "-s",
+      "--max-time",
+      "30",
+      "-H",
+      "Origin: https://www.youtube.com",
+      "-H",
+      "X-YouTube-LoungeId-Token: " + token,
+      std::string(kBindUrl) + "?RID=rpc&SID=" + UrlEncode(sid) +
+          "&gsessionid=" + UrlEncode(gsession) + "&AID=" + std::to_string(aid) +
           "&CI=0&TYPE=xmlhttp&VER=8&CVER=1&zx=castbridge"};
   int code = 0;
   int curl_exit = 0;
   std::string err;
   const std::string resp = RunCurl(args, &code, &err, &curl_exit);
   if (RawLogEnabled()) {
-    Log("Poll http=" + std::to_string(code) + " exit=" +
-        std::to_string(curl_exit) + " aid=" + std::to_string(aid) +
+    Log("Poll http=" + std::to_string(code) +
+        " exit=" + std::to_string(curl_exit) + " aid=" + std::to_string(aid) +
         " raw=" + resp);
   }
   if (code == 400 || code == 401 || code == 403) {
-    if (error) *error = "lounge session expired (HTTP " + std::to_string(code) + ")";
+    if (error)
+      *error = "lounge session expired (HTTP " + std::to_string(code) + ")";
     return PollResult::kNeedRefresh;
   }
   // Parse the body BEFORE inspecting the exit code: the Lounge long-poll
@@ -319,7 +361,8 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
   for (const std::string& chunk : SplitChunks(resp)) {
     Json::Value arr;
     std::string perr;
-    if (!reader->parse(chunk.data(), chunk.data() + chunk.size(), &arr, &perr) ||
+    if (!reader->parse(chunk.data(), chunk.data() + chunk.size(), &arr,
+                       &perr) ||
         !arr.isArray()) {
       continue;
     }
@@ -346,8 +389,10 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
       }
       // Lounge sends numbers as strings; accept either.
       auto num = [](const Json::Value& v) -> double {
-        if (v.isNumeric()) return v.asDouble();
-        if (v.isString()) return std::atof(v.asCString());
+        if (v.isNumeric())
+          return v.asDouble();
+        if (v.isString())
+          return std::atof(v.asCString());
         return 0.0;
       };
       auto str = [](const Json::Value& v) -> std::string {
@@ -359,9 +404,12 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
         st.state = mapped;
         got = true;  // only a real, mapped state counts as a usable update
       }
-      if (p.isMember("currentTime")) st.position = num(p["currentTime"]);
-      if (p.isMember("duration")) st.duration = num(p["duration"]);
-      if (p.isMember("videoId")) st.video_id = str(p["videoId"]);
+      if (p.isMember("currentTime"))
+        st.position = num(p["currentTime"]);
+      if (p.isMember("duration"))
+        st.duration = num(p["duration"]);
+      if (p.isMember("videoId"))
+        st.video_id = str(p["videoId"]);
     }
   }
 
@@ -378,7 +426,8 @@ PollResult YouTubeLounge::Poll(YouTubeStatus* out, std::string* error) {
     return PollResult::kNoChange;
   }
   if (code < 200 || code >= 300) {
-    if (error) *error = err.empty() ? ("poll HTTP " + std::to_string(code)) : err;
+    if (error)
+      *error = err.empty() ? ("poll HTTP " + std::to_string(code)) : err;
     return PollResult::kError;
   }
   return PollResult::kNoChange;
@@ -470,7 +519,8 @@ std::string YouTubeLounge::Command(const std::string& sc, double new_time) {
   // Expired session/token: the Lounge answers 400 ("Unknown SID") or 401/403.
   // Re-authenticate once and retry the command.
   if (code == 400 || code == 401 || code == 403) {
-    Log("Command http=" + std::to_string(code) + " — refreshing lounge session");
+    Log("Command http=" + std::to_string(code) +
+        " — refreshing lounge session");
     const std::string re = Refresh();
     if (!re.empty()) {
       return re;
