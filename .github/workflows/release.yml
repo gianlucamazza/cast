@@ -33,12 +33,30 @@ jobs:
         with:
           node-version: 20
 
+      - name: Check AMO secrets
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          [[ -n "$AMO_JWT_ISSUER" && -n "$AMO_JWT_SECRET" ]] || {
+            echo "::error::AMO_JWT_ISSUER / AMO_JWT_SECRET repo secrets are not set"
+            exit 1
+          }
+
+      # The sign cmd takes a built zip, not a source dir: build first.
+      - name: web-ext build
+        id: build
+        uses: kewisch/action-web-ext@84a13bb9e1b6108c43788ba091c41ca1dba6ad45 # v2
+        with:
+          cmd: build
+          source: ./extension
+
       - name: web-ext sign
         id: signing
         uses: kewisch/action-web-ext@84a13bb9e1b6108c43788ba091c41ca1dba6ad45 # v2
         with:
           cmd: sign
-          source: ./extension
+          source: ${{ steps.build.outputs.target }}
           channel: ${{ env.CHANNEL }}
           apiKey: ${{ secrets.AMO_JWT_ISSUER }}
           apiSecret: ${{ secrets.AMO_JWT_SECRET }}
