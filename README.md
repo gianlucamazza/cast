@@ -170,6 +170,13 @@ The version lives in three files that must move together: `package.json`,
 `extension/manifest.json`, and `packaging/aur/PKGBUILD` (`pkgver`, whose
 source URL pins the `v<version>` tag).
 
+AMO version numbers are unique per add-on **across channels**: a version
+signed unlisted (the tag default) can never be submitted listed, and vice
+versa. Plan one version per channel (e.g. tag `vX.Y.Z` unlisted, then bump
+to `X.Y.Z+1` for the listed `workflow_dispatch`). Listed submissions wait in
+Mozilla's review queue — the workflow run timing out at "Waiting for
+approval" means the submission is queued, not failed.
+
 1. Bump the version in all three files and add a `CHANGELOG.md` entry.
 2. If the fork branch changed, run
    `bash native/integration/regen-patch.sh` and commit the patch + pin.

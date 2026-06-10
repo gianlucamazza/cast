@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-10
+
+### Added
+
+- The daemon logs the receiver's `idleReason` when playback aborts
+  (distinguishes dead/unreachable content from protocol bugs).
+
 ### Fixed
 
 - Hardware-found (Philips TPM191E): media-load no longer hangs forever on
