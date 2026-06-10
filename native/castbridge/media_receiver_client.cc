@@ -143,6 +143,11 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   // is cancelled, or errors — that means the session is over, not just
   // starting.
   const std::string idle_reason = s.get("idleReason", "").asString();
+  if (!idle_reason.empty()) {
+    // ERROR/CANCELLED/INTERRUPTED point at delivery/codec problems on the
+    // receiver; surfacing the reason is the only way to diagnose them.
+    OSP_LOG_WARN << "castbridge: media went IDLE (" << idle_reason << ")";
+  }
   st.active = !(st.state == "IDLE" && !idle_reason.empty());
   st.position = s.get("currentTime", 0.0).asDouble();
   const Json::Value& media = s["media"];
