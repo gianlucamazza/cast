@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-10
+
+First listed AMO submission. No functional changes over 0.3.0 (AMO version
+numbers are unique per add-on, and 0.3.0 was consumed by the unlisted
+channel); release workflow builds before signing and fails fast on missing
+AMO secrets.
+
 ## [0.3.0] - 2026-06-10
 
 ### Added

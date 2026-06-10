@@ -1,6 +1,6 @@
 {
   "name": "cast-extension",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Firefox/LibreWolf extension that casts a media URL or mirrors the browser window/screen to a Chromecast via the native castbridge daemon.",
   "scripts": {
