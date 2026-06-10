@@ -37,6 +37,11 @@ OUT_DIR="${OUT_DIR:-out/Default}"
 # ninja drives the build; it auto-regenerates the gn graph via the buildtools
 # gn recorded in build.ninja, so a separate gn on PATH is not required.
 NINJA="${NINJA:-$(command -v ninja || echo "$OPENSCREEN_DIR/../depot_tools/ninja")}"
+[[ -x "$NINJA" ]] || {
+	echo "ninja not found (looked for: $NINJA)" >&2
+	echo "install ninja or set \$NINJA to the binary" >&2
+	exit 1
+}
 
 # Apply a one-line gn edit, then verify it took. The anchors are upstream gn
 # lines; if openscreen reformats them the sed is a silent no-op, so we re-check

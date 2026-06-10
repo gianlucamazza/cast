@@ -28,14 +28,14 @@ jobs:
     env:
       CHANNEL: ${{ github.event.inputs.channel || 'unlisted' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
       - name: web-ext sign
         id: signing
-        uses: kewisch/action-web-ext@v2
+        uses: kewisch/action-web-ext@84a13bb9e1b6108c43788ba091c41ca1dba6ad45 # v2
         with:
           cmd: sign
           source: ./extension
@@ -47,6 +47,6 @@ jobs:
 
       - name: Attach signed XPI to the release
         if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.target
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: ${{ steps.signing.outputs.target }}

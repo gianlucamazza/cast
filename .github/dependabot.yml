@@ -1,0 +1,12 @@
+# Keep GitHub Actions (SHA-pinned in the workflows) and npm devDependencies
+# current. Native deps are pinned separately in native/integration/openscreen.pin.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
