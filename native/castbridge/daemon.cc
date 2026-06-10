@@ -1,5 +1,7 @@
 #include "cast/castbridge/daemon.h"
 
+#include <arpa/inet.h>
+
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -137,16 +139,24 @@ Json::Value BuildSessionData(MirrorController& mirror,
   data["media"] = MediaData(md);
   if (yt_active) {
     Json::Value y(Json::objectValue);
-    // Real state once the event channel has reported; "PLAYING" is the optimistic
-    // default the controller seeds at load, before the first poll frame arrives.
+    // Real state once the event channel has reported; "PLAYING" is the
+    // optimistic default the controller seeds at load, before the first poll
+    // frame arrives.
     y["state"] = yd.state.empty() ? "PLAYING" : yd.state;
     y["title"] = yt.title();
     y["position"] = yd.position;
     y["duration"] = yd.duration;
-    y["videoId"] = yd.video_id;  // lets the content script pause the matching tab
+    y["videoId"] =
+        yd.video_id;  // lets the content script pause the matching tab
     data["youtube"] = y;
   }
   return data;
+}
+
+// Empty or a plain http(s) URL — the only shapes we forward to the receiver.
+bool IsOptionalHttpUrl(const std::string& s) {
+  return s.empty() || (s.size() <= 4096 && (s.rfind("http://", 0) == 0 ||
+                                            s.rfind("https://", 0) == 0));
 }
 
 // Resolve which device an action targets. Fills ip/name on success; on failure
@@ -158,6 +168,11 @@ bool ResolveDevice(DeviceLister& lister,
                    Json::Value* err) {
   const std::string explicit_ip = args.get("ip", "").asString();
   if (!explicit_ip.empty()) {
+    in_addr parsed_ip{};
+    if (inet_pton(AF_INET, explicit_ip.c_str(), &parsed_ip) != 1) {
+      *err = MakeError("usage", "invalid device IP address");
+      return false;
+    }
     *ip = explicit_ip;
     *name = args.get("device", "").asString();
     return true;
@@ -192,12 +207,256 @@ bool ResolveDevice(DeviceLister& lister,
   return false;
 }
 
+// --- per-action handlers -----------------------------------------------------
+// Sync handlers fill *resp (the dispatcher sends it); async handlers send the
+// reply themselves from their completion callback and return true.
+
+void HandleDevices(DeviceLister& lister, Json::Value* resp) {
+  Json::Value data(Json::objectValue);
+  data["candidates"] = DeviceArray(lister.Snapshot());
+  (*resp)["ok"] = true;
+  (*resp)["data"] = data;
+}
+
+void HandleMirrorWindow(DeviceLister& lister,
+                        MirrorController& mirror,
+                        const Json::Value& args,
+                        Json::Value* resp) {
+  std::string ip, name;
+  Json::Value err;
+  if (!ResolveDevice(lister, args, &ip, &name, &err)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = err;
+    return;
+  }
+  std::string selector = args.get("selector", "librewolf").asString();
+  WindowMatch w = ResolveWindow(selector);
+  if (!w.found) {
+    (*resp)["ok"] = false;
+    if (!w.wm_available) {
+      (*resp)["error"] = MakeError(
+          "no_wm",
+          "could not query the window manager — window mirroring needs "
+          "Hyprland; use screen mirror instead");
+    } else {
+      (*resp)["error"] =
+          MakeError("no_window", "no window matched '" + selector + "'");
+    }
+    return;
+  }
+  const std::string label = w.title.empty() ? w.app_class : w.title;
+  std::string e =
+      mirror.StartWindow(ip, w.address, w.pid, w.app_class, label, name);
+  if (e.empty()) {
+    Json::Value data(Json::objectValue);
+    data["mode"] = "window";
+    data["target"] = label;
+    data["device"] = name;
+    (*resp)["ok"] = true;
+    (*resp)["data"] = data;
+  } else {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("exec", e);
+  }
+}
+
+void HandleMirrorScreen(DeviceLister& lister,
+                        MirrorController& mirror,
+                        const Json::Value& args,
+                        Json::Value* resp) {
+  std::string ip, name;
+  Json::Value err;
+  if (!ResolveDevice(lister, args, &ip, &name, &err)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = err;
+    return;
+  }
+  std::string output = args.get("output", "").asString();
+  std::string e = mirror.StartScreen(ip, output, name);
+  if (e.empty()) {
+    Json::Value data(Json::objectValue);
+    data["mode"] = "output";
+    data["target"] = output;
+    data["device"] = name;
+    (*resp)["ok"] = true;
+    (*resp)["data"] = data;
+  } else {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("exec", e);
+  }
+}
+
+bool HandleMediaLoad(IpcServer& server,
+                     DeviceLister& lister,
+                     MediaController& media,
+                     uint64_t conn,
+                     const Json::Value& args,
+                     Json::Value* resp) {
+  std::string ip, name;
+  Json::Value err;
+  const std::string url = args.get("url", "").asString();
+  if (url.empty() || url.size() > 4096 ||
+      (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid or unsupported URL");
+    return false;
+  }
+  if (!IsOptionalHttpUrl(args.get("poster", "").asString())) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid poster URL");
+    return false;
+  }
+  if (!ResolveDevice(lister, args, &ip, &name, &err)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = err;
+    return false;
+  }
+  LoadRequest req;
+  req.url = url;
+  req.content_type = args.get("contentType", "").asString();
+  req.title = args.get("title", "").asString();
+  req.current_time = args.get("currentTime", 0.0).asDouble();
+  req.poster = args.get("poster", "").asString();
+  req.subtitle = args.get("subtitle", "").asString();
+  req.series_title = args.get("seriesTitle", "").asString();
+  req.season = args.get("season", 0).asInt();
+  req.episode = args.get("episode", 0).asInt();
+  const Json::Value id = (*resp)["id"];
+  media.LoadAsync(ip, req, [&server, conn, id](bool ok, const std::string& e) {
+    Json::Value r(Json::objectValue);
+    r["id"] = id;
+    r["action"] = "media-load";
+    r["ok"] = ok;
+    if (ok) {
+      Json::Value d(Json::objectValue);
+      d["loaded"] = true;
+      r["data"] = d;
+    } else {
+      r["error"] = MakeError("exec", e);
+    }
+    server.Send(conn, SerializeOrEmpty(r));
+  });
+  return true;  // async: the completion sends the reply
+}
+
+bool HandleYouTubeLoad(IpcServer& server,
+                       DeviceLister& lister,
+                       MediaController& media,
+                       YouTubeController& yt,
+                       uint64_t conn,
+                       const Json::Value& args,
+                       Json::Value* resp) {
+  std::string ip, name;
+  Json::Value err;
+  const std::string video_id = args.get("videoId", "").asString();
+  static const auto valid_id = [](const std::string& v) {
+    if (v.size() != 11)
+      return false;
+    for (char c : v) {
+      if (!(isalnum((unsigned char)c) || c == '_' || c == '-'))
+        return false;
+    }
+    return true;
+  };
+  if (!valid_id(video_id)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid YouTube video id");
+    return false;
+  }
+  if (!ResolveDevice(lister, args, &ip, &name, &err)) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = err;
+    return false;
+  }
+  const double start = args.get("currentTime", 0.0).asDouble();
+  const Json::Value id = (*resp)["id"];
+  // A new YouTube session supersedes any media session.
+  media.StopAsync([](bool, const std::string&) {});
+  yt.LoadAsync(ip, video_id, start,
+               [&server, conn, id](bool ok, const std::string& e) {
+                 Json::Value r(Json::objectValue);
+                 r["id"] = id;
+                 r["action"] = "youtube-load";
+                 r["ok"] = ok;
+                 if (ok) {
+                   Json::Value d(Json::objectValue);
+                   d["loaded"] = true;
+                   d["info"] = e;  // screenId during bring-up
+                   r["data"] = d;
+                 } else {
+                   r["error"] = MakeError("exec", e);
+                 }
+                 server.Send(conn, SerializeOrEmpty(r));
+               });
+  return true;  // async
+}
+
+void HandleMediaControl(IpcServer& server,
+                        MediaController& media,
+                        YouTubeController& yt,
+                        uint64_t conn,
+                        const Json::Value& args,
+                        const Json::Value& id) {
+  const std::string cmd = args.get("cmd", "").asString();
+  double value = 0;
+  if (cmd == "volume") {
+    int v = args.get("value", 0).asInt();
+    value = (v < 0 ? 0 : (v > 100 ? 100 : v)) / 100.0;
+  } else if (cmd == "seek") {
+    value = args.get("value", 0.0).asDouble();
+    if (value < 0) {
+      value = 0;
+    }
+  } else if (cmd == "mute") {
+    value = args.get("value", false).asBool() ? 1.0 : 0.0;
+  }
+  auto route = [&yt, &media](const std::string& c, double v,
+                             MediaController::Completion done) {
+    if (yt.active()) {
+      yt.ControlAsync(c, v, done);
+    } else {
+      media.ControlAsync(c, v, done);
+    }
+  };
+  route(cmd, value, [&server, conn, id, cmd](bool ok, const std::string& e) {
+    Json::Value r(Json::objectValue);
+    r["id"] = id;
+    r["action"] = "media-control";
+    r["ok"] = ok;
+    if (ok) {
+      Json::Value d(Json::objectValue);
+      d["cmd"] = cmd;
+      r["data"] = d;
+    } else {
+      r["error"] = MakeError("exec", e);
+    }
+    server.Send(conn, SerializeOrEmpty(r));
+  });
+}
+
+void HandleStop(MirrorController& mirror,
+                MediaController& media,
+                YouTubeController& yt,
+                Json::Value* resp) {
+  // Tear down whatever is active without blocking the IPC thread, and reply
+  // immediately so the UI feels instant. StopAsync's worker is joined in the
+  // controller's destructor, so it cannot outlive the daemon teardown; media
+  // and youtube stops already run on the TaskRunner / worker threads.
+  mirror.StopAsync();
+  media.StopAsync([](bool, const std::string&) {});
+  yt.StopAsync([](bool, const std::string&) {});
+  Json::Value data(Json::objectValue);
+  data["stopped"] = true;
+  (*resp)["ok"] = true;
+  (*resp)["data"] = data;
+}
+
 void HandleRequest(IpcServer& server,
                    DeviceLister& lister,
                    MirrorController& mirror,
                    MediaController& media,
                    YouTubeController& yt,
-                   int conn,
+                   uint64_t conn,
                    const std::string& line) {
   auto parsed = openscreen::json::Parse(line);
   Json::Value resp(Json::objectValue);
@@ -217,206 +476,33 @@ void HandleRequest(IpcServer& server,
   resp["id"] = msg.get("id", Json::Value::null);
   resp["action"] = action;
 
+  bool replied_async = false;
   if (action == "devices") {
-    Json::Value data(Json::objectValue);
-    data["candidates"] = DeviceArray(lister.Snapshot());
-    resp["ok"] = true;
-    resp["data"] = data;
+    HandleDevices(lister, &resp);
   } else if (action == "mirror-window") {
-    std::string ip, name;
-    Json::Value err;
-    if (!ResolveDevice(lister, args, &ip, &name, &err)) {
-      resp["ok"] = false;
-      resp["error"] = err;
-    } else {
-      std::string selector = args.get("selector", "librewolf").asString();
-      WindowMatch w = ResolveWindow(selector);
-      if (!w.found) {
-        resp["ok"] = false;
-        if (!w.wm_available) {
-          resp["error"] = MakeError(
-              "no_wm",
-              "could not query the window manager — window mirroring needs "
-              "Hyprland; use screen mirror instead");
-        } else {
-          resp["error"] = MakeError("no_window",
-                                    "no window matched '" + selector + "'");
-        }
-      } else {
-        const std::string label = w.title.empty() ? w.app_class : w.title;
-        std::string e =
-            mirror.StartWindow(ip, w.address, w.pid, w.app_class, label, name);
-        if (e.empty()) {
-          Json::Value data(Json::objectValue);
-          data["mode"] = "window";
-          data["target"] = label;
-          data["device"] = name;
-          resp["ok"] = true;
-          resp["data"] = data;
-        } else {
-          resp["ok"] = false;
-          resp["error"] = MakeError("exec", e);
-        }
-      }
-    }
+    HandleMirrorWindow(lister, mirror, args, &resp);
   } else if (action == "mirror-screen") {
-    std::string ip, name;
-    Json::Value err;
-    if (!ResolveDevice(lister, args, &ip, &name, &err)) {
-      resp["ok"] = false;
-      resp["error"] = err;
-    } else {
-      std::string output = args.get("output", "").asString();
-      std::string e = mirror.StartScreen(ip, output, name);
-      if (e.empty()) {
-        Json::Value data(Json::objectValue);
-        data["mode"] = "output";
-        data["target"] = output;
-        data["device"] = name;
-        resp["ok"] = true;
-        resp["data"] = data;
-      } else {
-        resp["ok"] = false;
-        resp["error"] = MakeError("exec", e);
-      }
-    }
+    HandleMirrorScreen(lister, mirror, args, &resp);
   } else if (action == "media-load") {
-    std::string ip, name;
-    Json::Value err;
-    const std::string url = args.get("url", "").asString();
-    if (url.empty() || url.size() > 4096 ||
-        (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0)) {
-      resp["ok"] = false;
-      resp["error"] = MakeError("usage", "invalid or unsupported URL");
-    } else if (!ResolveDevice(lister, args, &ip, &name, &err)) {
-      resp["ok"] = false;
-      resp["error"] = err;
-    } else {
-      LoadRequest req;
-      req.url = url;
-      req.content_type = args.get("contentType", "").asString();
-      req.title = args.get("title", "").asString();
-      req.current_time = args.get("currentTime", 0.0).asDouble();
-      req.poster = args.get("poster", "").asString();
-      req.subtitle = args.get("subtitle", "").asString();
-      req.series_title = args.get("seriesTitle", "").asString();
-      req.season = args.get("season", 0).asInt();
-      req.episode = args.get("episode", 0).asInt();
-      const Json::Value id = resp["id"];
-      media.LoadAsync(ip, req, [&server, conn, id](bool ok,
-                                                   const std::string& e) {
-        Json::Value r(Json::objectValue);
-        r["id"] = id;
-        r["action"] = "media-load";
-        r["ok"] = ok;
-        if (ok) {
-          Json::Value d(Json::objectValue);
-          d["loaded"] = true;
-          r["data"] = d;
-        } else {
-          r["error"] = MakeError("exec", e);
-        }
-        server.Send(conn, SerializeOrEmpty(r));
-      });
-      return;  // async: the completion sends the reply
-    }
+    replied_async = HandleMediaLoad(server, lister, media, conn, args, &resp);
   } else if (action == "youtube-load") {
-    std::string ip, name;
-    Json::Value err;
-    const std::string video_id = args.get("videoId", "").asString();
-    static const auto valid_id = [](const std::string& v) {
-      if (v.size() != 11) return false;
-      for (char c : v) {
-        if (!(isalnum((unsigned char)c) || c == '_' || c == '-')) return false;
-      }
-      return true;
-    };
-    if (!valid_id(video_id)) {
-      resp["ok"] = false;
-      resp["error"] = MakeError("usage", "invalid YouTube video id");
-    } else if (!ResolveDevice(lister, args, &ip, &name, &err)) {
-      resp["ok"] = false;
-      resp["error"] = err;
-    } else {
-      const double start = args.get("currentTime", 0.0).asDouble();
-      const Json::Value id = resp["id"];
-      // A new YouTube session supersedes any media session.
-      media.StopAsync([](bool, const std::string&) {});
-      yt.LoadAsync(ip, video_id, start, [&server, conn, id](bool ok,
-                                                            const std::string& e) {
-        Json::Value r(Json::objectValue);
-        r["id"] = id;
-        r["action"] = "youtube-load";
-        r["ok"] = ok;
-        if (ok) {
-          Json::Value d(Json::objectValue);
-          d["loaded"] = true;
-          d["info"] = e;  // screenId during bring-up
-          r["data"] = d;
-        } else {
-          r["error"] = MakeError("exec", e);
-        }
-        server.Send(conn, SerializeOrEmpty(r));
-      });
-      return;  // async
-    }
+    replied_async =
+        HandleYouTubeLoad(server, lister, media, yt, conn, args, &resp);
   } else if (action == "media-control") {
-    const std::string cmd = args.get("cmd", "").asString();
-    double value = 0;
-    if (cmd == "volume") {
-      int v = args.get("value", 0).asInt();
-      value = (v < 0 ? 0 : (v > 100 ? 100 : v)) / 100.0;
-    } else if (cmd == "seek") {
-      value = args.get("value", 0.0).asDouble();
-      if (value < 0) {
-        value = 0;
-      }
-    } else if (cmd == "mute") {
-      value = args.get("value", false).asBool() ? 1.0 : 0.0;
-    }
-    const Json::Value id = resp["id"];
-    auto route = [&yt, &media](const std::string& c, double v,
-                               MediaController::Completion done) {
-      if (yt.active()) {
-        yt.ControlAsync(c, v, done);
-      } else {
-        media.ControlAsync(c, v, done);
-      }
-    };
-    route(cmd, value, [&server, conn, id, cmd](bool ok, const std::string& e) {
-      Json::Value r(Json::objectValue);
-      r["id"] = id;
-      r["action"] = "media-control";
-      r["ok"] = ok;
-      if (ok) {
-        Json::Value d(Json::objectValue);
-        d["cmd"] = cmd;
-        r["data"] = d;
-      } else {
-        r["error"] = MakeError("exec", e);
-      }
-      server.Send(conn, SerializeOrEmpty(r));
-    });
-    return;  // async
+    HandleMediaControl(server, media, yt, conn, args, resp["id"]);
+    replied_async = true;
   } else if (action == "status") {
     resp["ok"] = true;
     resp["data"] = BuildSessionData(mirror, media, yt);
   } else if (action == "stop") {
-    // Tear down whatever is active without blocking the IPC thread, and reply
-    // immediately so the UI feels instant. mirror.Stop() is thread-safe; media
-    // and youtube stops already run on the TaskRunner / worker threads.
-    std::thread([&mirror] { mirror.Stop(); }).detach();
-    media.StopAsync([](bool, const std::string&) {});
-    yt.StopAsync([](bool, const std::string&) {});
-    Json::Value data(Json::objectValue);
-    data["stopped"] = true;
-    resp["ok"] = true;
-    resp["data"] = data;
+    HandleStop(mirror, media, yt, &resp);
   } else {
     resp["ok"] = false;
     resp["error"] = MakeError("usage", "unknown action '" + action + "'");
   }
-  server.Send(conn, SerializeOrEmpty(resp));
+  if (!replied_async) {
+    server.Send(conn, SerializeOrEmpty(resp));
+  }
 }
 
 }  // namespace
@@ -425,7 +511,8 @@ int RunDaemon() {
   std::signal(SIGPIPE, SIG_IGN);
   openscreen::SetLogLevel(openscreen::LogLevel::kInfo);
 
-  auto* const task_runner = new openscreen::TaskRunnerImpl(&openscreen::Clock::now);
+  auto* const task_runner =
+      new openscreen::TaskRunnerImpl(&openscreen::Clock::now);
   openscreen::PlatformClientPosix::Create(
       openscreen::milliseconds(50),
       std::unique_ptr<openscreen::TaskRunnerImpl>(task_runner));
@@ -435,93 +522,100 @@ int RunDaemon() {
   // threads + monitors joined) BEFORE PlatformClientPosix::ShutDown() frees the
   // TaskRunner — avoiding use-after-free from late worker tasks.
   {
-  DeviceLister lister(*task_runner);
-  MirrorController mirror;
-  MediaController media(*task_runner);
-  YouTubeController yt(*task_runner);
-  IpcServer server(SocketPath());
+    DeviceLister lister(*task_runner);
+    MirrorController mirror;
+    MediaController media(*task_runner);
+    YouTubeController yt(*task_runner);
+    IpcServer server(SocketPath());
 
-  // Push media-status events (live position) — no polling on the extension side.
-  media.set_on_status([&server](const MediaStatus& m) {
-    Json::Value evt(Json::objectValue);
-    evt["type"] = "media-status";
-    evt["data"] = MediaData(m);
-    server.Broadcast(SerializeOrEmpty(evt));
-  });
-
-  // Single source of truth: push a `session` event on every lifecycle change
-  // (start / stop / natural end), so the toolbar badge stays correct without
-  // polling and regardless of whether the popup is open.
-  auto broadcast_session = [&server, &mirror, &media, &yt] {
-    Json::Value evt(Json::objectValue);
-    evt["type"] = "session";
-    evt["data"] = BuildSessionData(mirror, media, yt);
-    server.Broadcast(SerializeOrEmpty(evt));
-  };
-  mirror.set_on_change(broadcast_session);
-  media.set_on_change(broadcast_session);
-  yt.set_on_change(broadcast_session);
-  // A YouTube playback state change (PLAYING <-> PAUSED, natural end) re-pushes
-  // the same `session` event, which now carries the real state from the Lounge
-  // event channel instead of the old hardcoded "PLAYING".
-  yt.set_on_status([broadcast_session](const YouTubeStatus&) {
-    broadcast_session();
-  });
-
-  // Push a devices-changed event whenever discovery updates (task thread).
-  lister.set_on_change([&server, &lister] {
-    Json::Value evt(Json::objectValue);
-    evt["type"] = "devices-changed";
-    Json::Value data(Json::objectValue);
-    data["candidates"] = DeviceArray(lister.Snapshot());
-    evt["data"] = data;
-    server.Broadcast(SerializeOrEmpty(evt));
-  });
-
-  server.set_request_handler(
-      [&server, &lister, &mirror, &media, &yt](int conn, const std::string& line) {
-        HandleRequest(server, lister, mirror, media, yt, conn, line);
-      });
-
-  g_server.store(&server, std::memory_order_release);
-  std::signal(SIGINT, HandleSignal);
-  std::signal(SIGTERM, HandleSignal);
-
-  std::thread tr_thread([task_runner] { task_runner->RunUntilStopped(); });
-
-  task_runner->PostTask([&lister] {
-    openscreen::InterfaceInfo iface;
-    if (ChooseInterface(&iface)) {
-      lister.Start(iface);
-    } else {
-      OSP_LOG_ERROR << "castbridge: no usable network interface for discovery";
-    }
-  });
-
-  ok = server.Run();  // blocks until Stop() (signal)
-
-  // A signal arriving from here on must not touch the soon-to-be-destroyed
-  // stack objects (server, controllers): drop the global so HandleSignal is a
-  // no-op during teardown.
-  g_server.store(nullptr, std::memory_order_release);
-
-  // Tear down sessions while the TaskRunner is still alive. The cast clients
-  // (TLS connections) MUST be destroyed on the TaskRunner thread, so do it via a
-  // posted task and wait for it before stopping the runner.
-  mirror.Stop();  // signals cast_sender + joins its monitor (no openscreen objs)
-  {
-    std::promise<void> torn;
-    task_runner->PostTask([&] {
-      media.ResetClient();
-      yt.ResetClient();
-      lister.Shutdown();
-      torn.set_value();
+    // Push media-status events (live position) — no polling on the extension
+    // side.
+    media.set_on_status([&server](const MediaStatus& m) {
+      Json::Value evt(Json::objectValue);
+      evt["type"] = "media-status";
+      evt["data"] = MediaData(m);
+      server.Broadcast(SerializeOrEmpty(evt));
     });
-    torn.get_future().wait_for(std::chrono::seconds(3));
-  }
-  task_runner->PostTask([task_runner] { task_runner->RequestStopSoon(); });
-  tr_thread.join();
-  }  // controllers destroyed here (clients already null; workers/monitors joined)
+
+    // Single source of truth: push a `session` event on every lifecycle change
+    // (start / stop / natural end), so the toolbar badge stays correct without
+    // polling and regardless of whether the popup is open.
+    auto broadcast_session = [&server, &mirror, &media, &yt] {
+      Json::Value evt(Json::objectValue);
+      evt["type"] = "session";
+      evt["data"] = BuildSessionData(mirror, media, yt);
+      server.Broadcast(SerializeOrEmpty(evt));
+    };
+    mirror.set_on_change(broadcast_session);
+    media.set_on_change(broadcast_session);
+    yt.set_on_change(broadcast_session);
+    // A YouTube playback state change (PLAYING <-> PAUSED, natural end)
+    // re-pushes the same `session` event, which now carries the real state from
+    // the Lounge event channel instead of the old hardcoded "PLAYING".
+    yt.set_on_status(
+        [broadcast_session](const YouTubeStatus&) { broadcast_session(); });
+
+    // Push a devices-changed event whenever discovery updates (task thread).
+    lister.set_on_change([&server, &lister] {
+      Json::Value evt(Json::objectValue);
+      evt["type"] = "devices-changed";
+      Json::Value data(Json::objectValue);
+      data["candidates"] = DeviceArray(lister.Snapshot());
+      evt["data"] = data;
+      server.Broadcast(SerializeOrEmpty(evt));
+    });
+
+    server.set_request_handler([&server, &lister, &mirror, &media, &yt](
+                                   uint64_t conn, const std::string& line) {
+      HandleRequest(server, lister, mirror, media, yt, conn, line);
+    });
+
+    g_server.store(&server, std::memory_order_release);
+    std::signal(SIGINT, HandleSignal);
+    std::signal(SIGTERM, HandleSignal);
+
+    std::thread tr_thread([task_runner] { task_runner->RunUntilStopped(); });
+
+    task_runner->PostTask([&lister] {
+      openscreen::InterfaceInfo iface;
+      if (ChooseInterface(&iface)) {
+        lister.Start(iface);
+      } else {
+        OSP_LOG_ERROR
+            << "castbridge: no usable network interface for discovery";
+      }
+    });
+
+    ok = server.Run();  // blocks until Stop() (signal)
+
+    // A signal arriving from here on must not touch the soon-to-be-destroyed
+    // stack objects (server, controllers): drop the global so HandleSignal is a
+    // no-op during teardown.
+    g_server.store(nullptr, std::memory_order_release);
+
+    // Tear down sessions while the TaskRunner is still alive. The cast clients
+    // (TLS connections) MUST be destroyed on the TaskRunner thread, so do it
+    // via a posted task and wait for it before stopping the runner.
+    mirror.Stop();  // signals cast_sender + joins its monitor (no openscreen
+                    // objs)
+    {
+      std::promise<void> torn;
+      task_runner->PostTask([&] {
+        media.ResetClient();
+        yt.ResetClient();
+        lister.Shutdown();
+        torn.set_value();
+      });
+      if (torn.get_future().wait_for(std::chrono::seconds(3)) !=
+          std::future_status::ready) {
+        OSP_LOG_ERROR << "castbridge: teardown task did not finish within 3s; "
+                         "proceeding with shutdown";
+      }
+    }
+    task_runner->PostTask([task_runner] { task_runner->RequestStopSoon(); });
+    tr_thread.join();
+  }  // controllers destroyed here (clients already null; workers/monitors
+     // joined)
 
   openscreen::PlatformClientPosix::ShutDown();
   return ok ? 0 : 1;
