@@ -9,7 +9,7 @@
 # ~GB) and compiles it — this downloads at build time and takes a while. The
 # extension itself ships separately via AMO.
 pkgname=castbridge
-pkgver=0.3.1
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Native Chromecast backend for the Cast browser extension (openscreen Cast Streaming)"
 arch=('x86_64')
@@ -19,8 +19,8 @@ depends=('ffmpeg' 'libva' 'libvpx' 'opus' 'curl' 'gcc-libs')
 optdepends=('hyprland: window mirroring (screen mirroring works on any Wayland compositor)')
 makedepends=('git' 'python')
 options=('!lto' '!strip')
-# Private repo for now: switch to https once public, or build from a local tag.
-source=("$pkgname::git+ssh://git@github.com/gianlucamazza/cast.git#tag=v$pkgver")
+# pkgver tracks the latest GIT TAG (not the AMO-only extension version).
+source=("$pkgname::git+https://github.com/gianlucamazza/cast.git#tag=v$pkgver")
 sha256sums=('SKIP')
 
 _forkdir() { echo "$srcdir/openscreen"; }
