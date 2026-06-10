@@ -212,8 +212,12 @@ void CastChannelClient::HandleReceiverStatus(const Json::Value& payload) {
   app_vc_.emplace(VirtualConnection{app_local_id_, transport_id, socket_id_});
   OSP_LOG_INFO << "castbridge: " << app_name()
                << " ready, opening message routing...";
-  connection_handler_.OpenRemoteConnection(
-      *app_vc_, [this](bool success) { OnAppConnectionOpened(success); });
+  // The CONNECT to the app transport is fire-and-forget: Google receivers ack
+  // it, but third-party Cast stacks (e.g. Philips TVs) never do, so gating the
+  // session on the ack hangs forever. Send it and proceed immediately — the
+  // same strategy every production sender uses.
+  connection_handler_.OpenRemoteConnection(*app_vc_, [](bool) {});
+  OnAppConnectionOpened(true);
 }
 
 void CastChannelClient::SendToPlatform(const std::string& ns,
@@ -253,6 +257,10 @@ void CastChannelClient::SetMuted(bool muted) {
 }
 
 void CastChannelClient::Shutdown() {
+  // Explicit teardown must never announce itself as a remote close: the
+  // on_closed_ chain belongs to the session being torn down, and firing it
+  // here can destroy a successor client the controller just created.
+  on_closed_ = nullptr;
   OnBeforeShutdown();
   if (app_vc_) {
     const VirtualConnection vc = *app_vc_;

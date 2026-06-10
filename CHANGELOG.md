@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+### Fixed
+
+- Hardware-found (Philips TPM191E): media-load no longer hangs forever on
+  receivers that never ack the app-transport CONNECT — the CONNECT is now
+  fire-and-forget like every production sender. A load retry after such a hang
+  could crash the daemon (use-after-free: tearing down the old client fired
+  its on-closed chain, which destroyed the successor client); explicit
+  teardown is now silent and deferred resets only target the dying client.
+  A timed-out load also drops its half-open session so retries start clean.
+
 ## [0.3.1] - 2026-06-10
 
 First listed AMO submission. No functional changes over 0.3.0 (AMO version
