@@ -81,8 +81,16 @@ bash install/install-host.sh   # native-messaging manifest + wrapper; then load 
   Actions: `devices`, `media-load`, `media-control`, `mirror-window`,
   `mirror-screen`, `youtube-load`, `status`, `stop`. `media-load` accepts optional
   now-playing metadata args (`title`, `subtitle`, `poster`, `seriesTitle`, `season`,
-  `episode`) → Movie/TvShow LOAD metadata (see `castbridge/README.md`). Events: `session`,
-  `media-status`, `devices-changed`, `session-ended`. Error codes the extension
+  `episode`) → Movie/TvShow LOAD metadata, plus an optional side-loaded caption track
+  (`subtitleUrl`, `subtitleLang`, `subtitleName`) → TEXT/SUBTITLES track + activeTrackIds
+  (see `castbridge/README.md`). An optional `appId` (validated alphanumeric; empty →
+  `kDefaultMediaReceiverAppId` = `CC1AD845`) launches a custom CAF receiver instead — the dormant
+  enabling hook for ADR 0013/nstream (`native/receiver/`), no default change. Events: `session`,
+  `media-status`, `devices-changed`, `session-ended`. The `media-status`/`session` media block
+  carries `activeTrackIds` (the receiver's confirmed active tracks — for a side-loaded caption
+  track, proof it activated) and, on a failure, `error` (from `idleReason: ERROR` or a
+  `LOAD_FAILED`/`INVALID_REQUEST` media message); an error-carrying status is serialized even
+  when inactive (ADR 0016 nstream). Error codes the extension
   reacts to: `ambiguous`, `no_devices`, `no_window`, `no_wm`, plus relay-level
   `nohost`/`timeout`.
 
@@ -100,6 +108,7 @@ Read these before non-trivial work on each area — they are kept current:
 
 - `native/castbridge/README.md` — subsystem table + full IPC protocol
 - `native/integration/README.md` — fork provisioning, pinned inputs, gn wiring
+- `native/receiver/README.md` — custom CAF receiver scaffold + operator runbook (ADR 0013/nstream)
 - `README.md` — user-facing install, compatibility matrix, capabilities
 
 ## Conventions

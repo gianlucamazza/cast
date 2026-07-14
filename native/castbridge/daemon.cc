@@ -96,7 +96,9 @@ Json::Value MakeError(const std::string& code, const std::string& message) {
 }
 
 Json::Value MediaData(const MediaStatus& m) {
-  if (!m.active) {
+  // An error-carrying status is worth forwarding even when inactive (a LOAD that failed
+  // before any active session) — otherwise the receiver's only failure signal is dropped.
+  if (!m.active && m.error.empty()) {
     return Json::Value::null;
   }
   Json::Value d(Json::objectValue);
@@ -105,6 +107,16 @@ Json::Value MediaData(const MediaStatus& m) {
   d["position"] = m.position;
   d["duration"] = m.duration;
   d["mediaSessionId"] = m.media_session_id;
+  // Receiver track/error observability (ADR 0016): activeTrackIds confirms a side-loaded
+  // caption track was activated; error surfaces a codec/caption rejection.
+  Json::Value ids(Json::arrayValue);
+  for (int id : m.active_track_ids) {
+    ids.append(id);
+  }
+  d["activeTrackIds"] = ids;
+  if (!m.error.empty()) {
+    d["error"] = m.error;
+  }
   return d;
 }
 
@@ -157,6 +169,25 @@ Json::Value BuildSessionData(MirrorController& mirror,
 bool IsOptionalHttpUrl(const std::string& s) {
   return s.empty() || (s.size() <= 4096 && (s.rfind("http://", 0) == 0 ||
                                             s.rfind("https://", 0) == 0));
+}
+
+// Empty, or a Cast application id: 2-32 alphanumeric chars (default receiver "CC1AD845";
+// a registered custom CAF receiver has a similar id — ADR 0013 nstream). Empty → default.
+bool IsOptionalAppId(const std::string& s) {
+  if (s.empty()) {
+    return true;
+  }
+  if (s.size() < 2 || s.size() > 32) {
+    return false;
+  }
+  for (char c : s) {
+    const bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                    (c >= 'a' && c <= 'z');
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Resolve which device an action targets. Fills ip/name on success; on failure
@@ -306,6 +337,16 @@ bool HandleMediaLoad(IpcServer& server,
     (*resp)["error"] = MakeError("usage", "invalid poster URL");
     return false;
   }
+  if (!IsOptionalHttpUrl(args.get("subtitleUrl", "").asString())) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid subtitle URL");
+    return false;
+  }
+  if (!IsOptionalAppId(args.get("appId", "").asString())) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid appId");
+    return false;
+  }
   if (!ResolveDevice(lister, args, &ip, &name, &err)) {
     (*resp)["ok"] = false;
     (*resp)["error"] = err;
@@ -321,6 +362,10 @@ bool HandleMediaLoad(IpcServer& server,
   req.series_title = args.get("seriesTitle", "").asString();
   req.season = args.get("season", 0).asInt();
   req.episode = args.get("episode", 0).asInt();
+  req.subtitle_url = args.get("subtitleUrl", "").asString();
+  req.subtitle_lang = args.get("subtitleLang", "").asString();
+  req.subtitle_name = args.get("subtitleName", "").asString();
+  req.app_id = args.get("appId", "").asString();
   const Json::Value id = (*resp)["id"];
   media.LoadAsync(ip, req, [&server, conn, id](bool ok, const std::string& e) {
     Json::Value r(Json::objectValue);

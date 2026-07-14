@@ -44,7 +44,14 @@ events (no `id`).
 `media-load` args: `url` (required, http/https, ≤4096 chars), device selector (`ip` —
 must be a literal IPv4 — | `deviceId` | `device`), `contentType`, `currentTime`, and
 optional now-playing metadata — `title`, `subtitle`, `poster` (http/https image URL,
-validated), `seriesTitle`, `season`, `episode`. The LOAD carries a TvShow metadata block
+validated), `seriesTitle`, `season`, `episode`, and an optional side-loaded caption
+track — `subtitleUrl` (http/https WebVTT URL, validated), `subtitleLang` (BCP-47/ISO
+code), `subtitleName` (menu label). When `subtitleUrl` is set the LOAD carries a single
+TEXT/SUBTITLES track and marks it active (the receiver fetches the VTT itself, so the
+server must send CORS headers). An optional `appId` (2-32 alphanumeric, validated;
+empty → `kDefaultMediaReceiverAppId` = `CC1AD845`) launches a custom CAF receiver
+instead of the Default Media Receiver — the dormant hook for a Dolby-passthrough
+receiver (ADR 0013/nstream, `native/receiver/`). The LOAD carries a TvShow metadata block
 when `seriesTitle` is set, a Movie block when `poster`/`subtitle` is set, else the bare
 title. The receiver must be able to fetch `url` itself (complete file, Range-served);
 if its player aborts, the daemon logs the receiver's `idleReason`
@@ -53,7 +60,11 @@ if its player aborts, the daemon logs the receiver's `idleReason`
 **Events:** `session` (authoritative state on start/stop/natural end — now carries
 the real YouTube play/pause state from the Lounge event channel, not an optimistic
 default), `media-status` (live position for the URL receiver), `devices-changed`,
-`session-ended`.
+`session-ended`. The `media-status`/`session` media block carries `activeTrackIds`
+(the receiver's confirmed active tracks — proof a side-loaded caption activated) and,
+on a failure, `error` (from `idleReason: ERROR` or a `LOAD_FAILED`/`INVALID_REQUEST`
+media message; a load failure also resolves the LOAD reply as `ok:false`). An
+error-carrying status is serialized even when the session is inactive (ADR 0016/nstream).
 
 Error codes the extension reacts to: `ambiguous`, `no_devices`, `no_window`,
 `no_wm`, plus relay-level `nohost`/`timeout`.

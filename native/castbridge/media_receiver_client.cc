@@ -54,8 +54,16 @@ void MediaReceiverClient::OnAppConnectionOpened(bool success) {
 void MediaReceiverClient::OnAppMessage(const std::string& ns,
                                        const std::string& type,
                                        const Json::Value& body) {
-  if (ns == kMediaNamespace && type == "MEDIA_STATUS") {
+  if (ns != kMediaNamespace) {
+    return;
+  }
+  if (type == "MEDIA_STATUS") {
     HandleMediaStatus(body);
+  } else if (type == "LOAD_FAILED" || type == "INVALID_REQUEST" ||
+             type == "ERROR") {
+    // The receiver rejected the LOAD (bad codec, unreachable/invalid media, a
+    // caption it couldn't fetch): surface it instead of hanging until timeout.
+    HandleMediaError(type, body);
   }
 }
 
@@ -120,7 +128,30 @@ void MediaReceiverClient::SendLoad() {
   }
   media["metadata"] = meta;
 
+  // Side-loaded caption track: a single TEXT/SUBTITLES track the Default Media
+  // Receiver fetches (WebVTT) and renders. Declared on the media, activated via
+  // the LOAD's activeTrackIds so captions show without a manual menu toggle.
   Json::Value m(Json::objectValue);
+  if (!request_.subtitle_url.empty()) {
+    Json::Value track(Json::objectValue);
+    track["trackId"] = 1;
+    track["type"] = "TEXT";
+    track["trackContentId"] = request_.subtitle_url;
+    track["trackContentType"] = "text/vtt";
+    track["subtype"] = "SUBTITLES";
+    if (!request_.subtitle_lang.empty()) {
+      track["language"] = request_.subtitle_lang;
+    }
+    track["name"] =
+        request_.subtitle_name.empty() ? "Subtitles" : request_.subtitle_name;
+    Json::Value tracks(Json::arrayValue);
+    tracks.append(track);
+    media["tracks"] = tracks;
+    Json::Value active(Json::arrayValue);
+    active.append(1);
+    m["activeTrackIds"] = active;
+  }
+
   m["type"] = "LOAD";
   m["requestId"] = NextRequestId();
   m["media"] = media;
@@ -148,11 +179,27 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
     // receiver; surfacing the reason is the only way to diagnose them.
     OSP_LOG_WARN << "castbridge: media went IDLE (" << idle_reason << ")";
   }
+  // Only ERROR is a genuine fault; FINISHED/CANCELLED/INTERRUPTED are normal ends
+  // (a natural finish or a new LOAD replacing this one) and must not read as errors.
+  if (idle_reason == "ERROR") {
+    st.error = idle_reason;
+  }
   st.active = !(st.state == "IDLE" && !idle_reason.empty());
   st.position = s.get("currentTime", 0.0).asDouble();
   const Json::Value& media = s["media"];
   st.duration = media.get("duration", 0.0).asDouble();
   st.title = media["metadata"].get("title", "").asString();
+  // Which tracks the receiver actually has active — for a side-loaded caption track
+  // this confirms the WebVTT was fetched + activated (ADR 0016). Absent on receivers
+  // that don't echo it → empty, treated as "unknown" downstream, never a downgrade.
+  const Json::Value& active_ids = s["activeTrackIds"];
+  if (active_ids.isArray()) {
+    for (const Json::Value& id : active_ids) {
+      if (id.isInt()) {
+        st.active_track_ids.push_back(id.asInt());
+      }
+    }
+  }
 
   if (on_status_) {
     on_status_(st);
@@ -160,6 +207,28 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   if (!loaded_) {
     loaded_ = true;
     FireReady(true, "");
+  }
+}
+
+void MediaReceiverClient::HandleMediaError(const std::string& type,
+                                           const Json::Value& body) {
+  const std::string reason = body.get("reason", "").asString();
+  const std::string detail = reason.empty() ? type : (type + ": " + reason);
+  OSP_LOG_WARN << "castbridge: media error (" << detail << ")";
+  // Push it as a status so the client's event stream carries the failure; an inactive
+  // status with a non-empty error is serialized by the daemon (it would otherwise be
+  // dropped as an idle session).
+  MediaStatus st;
+  st.error = detail;
+  st.media_session_id = media_session_id_;
+  if (on_status_) {
+    on_status_(st);
+  }
+  // A LOAD that fails before the first MEDIA_STATUS must resolve the one-shot ready as a
+  // failure, so the caller falls back (to catt) instead of hanging until the timeout.
+  if (!loaded_) {
+    loaded_ = true;
+    FireReady(false, detail);
   }
 }
 

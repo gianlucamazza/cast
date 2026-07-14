@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!--
+  castbridge custom CAF v3 Web Receiver — scaffold for ADR 0013 (nstream).
+
+  Purpose: replace the Default Media Receiver (CC1AD845) so a Dolby-capable display can play
+  AC-3/E-AC-3 WITHOUT the host-side Tier-2 remux, and expose native audio/text track selection.
+
+  This is a SCAFFOLD, not a shipped default. It cannot be used until an operator:
+    1. registers a Cast application id pointing at the HTTPS URL where this file is hosted
+       (Google Cast Developer Console — requires a Google account + the $5 registration + the
+       test device registered), and
+    2. hosts this file over HTTPS at that URL.
+  Then point castbridge at the registered id via the `appId` media-load arg (bridge.py app_id).
+  It has NOT been field-validated (no registered id yet); validate on a Dolby-capable AND a
+  non-Dolby display before making it a default (kb: validate-in-the-field).
+
+  Design invariant (the honest core of ADR 0013): never ASSUME a codec — probe the real device
+  with canDisplayType() at session start and only advertise what it reports. On a non-passthrough
+  display the probe returns false and the sender keeps using the Tier-2 remux fallback.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>castbridge receiver</title>
+    <!-- Official Google-hosted CAF v3 receiver SDK: required for any custom receiver. -->
+    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  </head>
+  <body>
+    <cast-media-player></cast-media-player>
+    <script>
+      // Must match the native host id so a custom sender (castbridge) can exchange capability
+      // messages with the receiver (ADR 0016 channel). Keep in sync with background.js / install.
+      const NAMESPACE = 'urn:x-cast:it.gianlucamazza.castbridge';
+
+      const context = cast.framework.CastReceiverContext.getInstance();
+
+      // Probe the real device: return the codec's support verdict, never assume it.
+      function canDisplay(mime, codec) {
+        try {
+          return context.canDisplayType(mime, codec);
+        } catch (e) {
+          return false;
+        }
+      }
+
+      // On READY the device pipeline is known — probe Dolby support and report it back so the
+      // sender can gate its remux fallback on the *real* device instead of a hardcoded codec set.
+      context.addEventListener(cast.framework.system.EventType.READY, () => {
+        const caps = {
+          ac3: canDisplay('audio/mp4', 'ac-3'),
+          eac3: canDisplay('audio/mp4', 'ec-3'),
+        };
+        try {
+          context.sendCustomMessage(NAMESPACE, undefined, { type: 'capabilities', caps });
+        } catch (e) {
+          // No sender listening on our namespace (e.g. a plain sender) — capabilities stay local.
+        }
+        console.log('[castbridge-receiver] capabilities ' + JSON.stringify(caps));
+      });
+
+      const options = new cast.framework.CastReceiverOptions();
+      options.customNamespaces = {
+        [NAMESPACE]: cast.framework.system.MessageType.JSON,
+      };
+      // A custom receiver negotiates the display's own audio path, so AC-3/E-AC-3 pass through
+      // to a Dolby-capable display; on a non-Dolby display the pipeline simply won't render them
+      // (canDisplay above returns false), so this is safe to leave enabled unconditionally.
+      context.start(options);
+    </script>
+  </body>
+</html>
