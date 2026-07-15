@@ -5,9 +5,15 @@ AC-3/E-AC-3 audio directly — no host-side Tier-2 remux — and exposes native 
 selection. It replaces the Default Media Receiver (`CC1AD845`) only when an operator registers
 and hosts it (steps below); until then nstream keeps using the DMR + remux path.
 
-**Status: scaffold, NOT field-validated.** No application id is registered yet, so this has never
-run on a real device. Validate on a Dolby-capable _and_ a non-Dolby display before making it a
-default (kb: validate-in-the-field).
+**Status: hosted live, awaiting app-id registration — NOT yet cast-validated.** The receiver is
+deployed and reachable at **https://gianlucamazza.it/cast-receiver/index.html** (HTTP 200, its
+own CSP allowing the gstatic CAF SDK). It has never run on a real device because no Cast
+application id points at it yet. Validate on a Dolby-capable _and_ a non-Dolby display once
+registered (kb: validate-in-the-field).
+
+Hosting deployed via the `personal-website` repo: `public/cast-receiver/index.html` (a
+byte-identical copy of this file, excluded from Prettier + the content-SEO scan) + a dedicated
+nginx `location ^~ /cast-receiver/`. Register at the **apex** (www 301s to it).
 
 ## Why the enabling plumbing already ships, but this doesn't run
 
@@ -30,10 +36,12 @@ What remains is exactly what an operator (not the code) must provide.
 
 1. **Register an application id** in the [Google Cast Developer Console](https://cast.google.com/publish)
    (Google account + one-time $5 developer registration). Create a **Custom Receiver**, set its
-   URL to where you host `index.html` (step 2). Register your test device's serial for
-   unpublished testing.
-2. **Host `index.html` over HTTPS** at a stable URL (the console requires HTTPS). Host it on the
-   same infra as the rest of the stack so the URL stays reachable.
+   URL to **https://gianlucamazza.it/cast-receiver/index.html** (already hosted, step 2 ✅).
+   Register your test device's serial (the Philips at 192.168.1.228) for unpublished testing.
+   _Blocker: the $5 fee currently fails at CheBanca/Nexi 3DS — unblock the card or use another._
+2. ~~**Host `index.html` over HTTPS**~~ **DONE** — deployed via the `personal-website` repo (PR
+   merged → GHCR → odroid), live at `https://gianlucamazza.it/cast-receiver/index.html` (HTTP 200,
+   CSP allows the gstatic CAF SDK). Register at the apex; www 301s to it.
 3. **Point castbridge at it** — send the registered app id as the `appId` media-load arg. From
    nstream, thread it through `bridge.cast_load(app_id=...)` (a future `cast_receiver_app_id`
    config knob would wire this; deliberately not added while unvalidated).
