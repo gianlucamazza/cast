@@ -12,7 +12,7 @@
     "sign:listed": "web-ext sign -c web-ext-config.mjs --channel=listed --amo-metadata=amo-metadata.json --api-key=\"$AMO_JWT_ISSUER\" --api-secret=\"$AMO_JWT_SECRET\""
   },
   "devDependencies": {
-    "web-ext": "^10.4.0"
+    "web-ext": "^10.5.0"
   },
   "overrides": {
     "shell-quote": "^1.8.4"
