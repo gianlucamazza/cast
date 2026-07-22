@@ -15,7 +15,9 @@ bash native/integration/build.sh              # add + build castbridge
 inputs in `openscreen.pin`, with two interchangeable strategies:
 
 - **default** — clone the private fork (`fork` @ `fork_branch`) straight at the
-  patched branch. Fast, no `git am`; needs SSH access to the fork.
+  patched branch. Fast, no `git am`; needs SSH access to the fork. When the fork
+  is not reachable (no SSH key / not the owner) the script detects it and falls
+  back to `--from-upstream` automatically — no flag needed.
 - **`--from-upstream`** — clone upstream openscreen at the `pin` and apply the
   versioned patch (`patches/0001-*.patch`) with `git am`. No fork access needed;
   use this in CI or when sharing with others.
