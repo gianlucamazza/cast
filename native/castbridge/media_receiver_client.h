@@ -79,6 +79,17 @@ struct LoadRequest {
   std::string app_id;
 };
 
+// Whether a LOAD can ride an existing media session instead of reconnecting and
+// relaunching the app: the same device, the same receiver app, still running, and a first
+// LOAD already answered. Reconnecting INTERRUPTs the playing media and costs a LAUNCH
+// (nstream 2026-10-02: a re-LOAD left the TV IDLE or stuck in BUFFERING).
+bool CanReuseSession(bool app_running,
+                     bool loaded,
+                     const openscreen::IPEndpoint& current,
+                     const std::string& current_app_id,
+                     const openscreen::IPEndpoint& target,
+                     const std::string& target_app_id);
+
 class MediaReceiverClient final : public CastChannelClient {
  public:
   using StatusCallback = std::function<void(const MediaStatus&)>;
@@ -94,6 +105,14 @@ class MediaReceiverClient final : public CastChannelClient {
   void Connect(const openscreen::IPEndpoint& endpoint,
                LoadRequest request,
                ReadyCallback on_ready);
+
+  // True when a LOAD of `request` on `endpoint` can use Reload().
+  bool CanReload(const openscreen::IPEndpoint& endpoint,
+                 const LoadRequest& request) const;
+  // LOAD `request` on the current app connection (no reconnect, no LAUNCH). Statuses of
+  // the media it replaces are dropped, so its INTERRUPTED end is not read as the session
+  // ending. on_ready fires once, like Connect().
+  void Reload(LoadRequest request, ReadyCallback on_ready);
 
   // Playback controls (no-ops until a media session exists).
   void Control(const std::string& cmd, double value);  // play|pause|stop|seek
@@ -127,6 +146,8 @@ class MediaReceiverClient final : public CastChannelClient {
   LoadRequest request_;
   bool loaded_ = false;
   int media_session_id_ = 0;
+  // The media session a Reload() replaced; its late statuses are ignored.
+  int superseded_session_id_ = 0;
 };
 
 }  // namespace castbridge

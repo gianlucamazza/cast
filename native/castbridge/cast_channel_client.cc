@@ -59,6 +59,7 @@ CastChannelClient::~CastChannelClient() = default;
 
 void CastChannelClient::ConnectInternal(
     const openscreen::IPEndpoint& endpoint) {
+  endpoint_ = endpoint;
   task_runner_.PostTask([this, endpoint] {
     socket_factory_.Connect(endpoint,
                             openscreen::cast::SenderSocketFactory::
@@ -192,20 +193,26 @@ void CastChannelClient::OnMessage(
 void CastChannelClient::HandleReceiverStatus(const Json::Value& payload) {
   const Json::Value& status = payload[kMessageKeyStatus];
   const Json::Value& apps = status[kMessageKeyApplications];
-  if (!apps.isArray()) {
-    return;
-  }
   std::string transport_id, session_id;
-  for (const Json::Value& app : apps) {
-    if (app.get(kMessageKeyAppId, "").asString() == app_id()) {
-      transport_id = app.get(kMessageKeyTransportId, "").asString();
-      session_id = app.get(kMessageKeySessionId, "").asString();
-      break;
+  if (apps.isArray()) {
+    for (const Json::Value& app : apps) {
+      if (app.get(kMessageKeyAppId, "").asString() == app_id()) {
+        transport_id = app.get(kMessageKeyTransportId, "").asString();
+        session_id = app.get(kMessageKeySessionId, "").asString();
+        break;
+      }
     }
   }
-  if (transport_id.empty() || app_vc_) {
-    return;  // app not (yet) running, or already connected
+  if (app_vc_) {
+    // Already connected: track whether our app instance is still the running one. A
+    // status without it (no applications, another app, a relaunch) ends reuse.
+    app_running_ = transport_id == app_vc_->peer_id;
+    return;
   }
+  if (transport_id.empty()) {
+    return;  // app not (yet) running
+  }
+  app_running_ = true;
   app_session_id_ = session_id;
   app_local_id_ = MakeUniqueSessionId(local_id_prefix());
   router_.AddHandlerForLocalId(app_local_id_, this);
