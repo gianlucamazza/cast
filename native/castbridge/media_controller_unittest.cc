@@ -61,7 +61,8 @@ TEST(CanReuseSessionTest, SameDeviceAndRunningAppReuses) {
   const auto tv = Device("192.168.1.228");
   EXPECT_TRUE(CanReuseSession(true, true, tv, "", tv, ""));
   // An explicit Default Media Receiver id is the same app as the empty default.
-  EXPECT_TRUE(CanReuseSession(true, true, tv, "", tv, kDefaultMediaReceiverAppId));
+  EXPECT_TRUE(
+      CanReuseSession(true, true, tv, "", tv, kDefaultMediaReceiverAppId));
 }
 
 TEST(CanReuseSessionTest, AnythingElseReconnects) {

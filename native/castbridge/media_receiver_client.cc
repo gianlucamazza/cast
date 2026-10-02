@@ -213,8 +213,9 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
     // receiver; surfacing the reason is the only way to diagnose them.
     OSP_LOG_WARN << "castbridge: media went IDLE (" << idle_reason << ")";
   }
-  // Only ERROR is a genuine fault; FINISHED/CANCELLED/INTERRUPTED are normal ends
-  // (a natural finish or a new LOAD replacing this one) and must not read as errors.
+  // Only ERROR is a genuine fault; FINISHED/CANCELLED/INTERRUPTED are normal
+  // ends (a natural finish or a new LOAD replacing this one) and must not read
+  // as errors.
   if (idle_reason == "ERROR") {
     st.error = idle_reason;
   }
@@ -223,9 +224,10 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   const Json::Value& media = s["media"];
   st.duration = media.get("duration", 0.0).asDouble();
   st.title = media["metadata"].get("title", "").asString();
-  // Which tracks the receiver actually has active — for a side-loaded caption track
-  // this confirms the WebVTT was fetched + activated (ADR 0016). Absent on receivers
-  // that don't echo it → empty, treated as "unknown" downstream, never a downgrade.
+  // Which tracks the receiver actually has active — for a side-loaded caption
+  // track this confirms the WebVTT was fetched + activated (ADR 0016). Absent
+  // on receivers that don't echo it → empty, treated as "unknown" downstream,
+  // never a downgrade.
   const Json::Value& active_ids = s["activeTrackIds"];
   if (active_ids.isArray()) {
     for (const Json::Value& id : active_ids) {
@@ -262,17 +264,18 @@ void MediaReceiverClient::HandleMediaError(const std::string& type,
   const std::string reason = body.get("reason", "").asString();
   const std::string detail = reason.empty() ? type : (type + ": " + reason);
   OSP_LOG_WARN << "castbridge: media error (" << detail << ")";
-  // Push it as a status so the client's event stream carries the failure; an inactive
-  // status with a non-empty error is serialized by the daemon (it would otherwise be
-  // dropped as an idle session).
+  // Push it as a status so the client's event stream carries the failure; an
+  // inactive status with a non-empty error is serialized by the daemon (it
+  // would otherwise be dropped as an idle session).
   MediaStatus st;
   st.error = detail;
   st.media_session_id = media_session_id_;
   if (on_status_) {
     on_status_(st);
   }
-  // A LOAD that fails before the first MEDIA_STATUS must resolve the one-shot ready as a
-  // failure, so the caller falls back (to catt) instead of hanging until the timeout.
+  // A LOAD that fails before the first MEDIA_STATUS must resolve the one-shot
+  // ready as a failure, so the caller falls back (to catt) instead of hanging
+  // until the timeout.
   if (!loaded_) {
     loaded_ = true;
     FireReady(false, detail);

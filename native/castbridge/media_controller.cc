@@ -38,11 +38,10 @@ void MediaController::LoadAsync(std::string ip,
     const openscreen::IPEndpoint endpoint{addr.value(), 8009};
 
     if (client_ && client_->CanReload(endpoint, request)) {
-      // Same device and app still running: LOAD on the live session. A reconnect would
-      // relaunch the app and INTERRUPT the playing media.
-      client_->Reload(request, [finish](bool ok, const std::string& e) {
-        finish(ok, e);
-      });
+      // Same device and app still running: LOAD on the live session. A
+      // reconnect would relaunch the app and INTERRUPT the playing media.
+      client_->Reload(
+          request, [finish](bool ok, const std::string& e) { finish(ok, e); });
     } else {
       client_.reset();  // tear down any prior session
       client_ = std::make_unique<MediaReceiverClient>(

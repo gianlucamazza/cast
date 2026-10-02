@@ -204,8 +204,9 @@ void CastChannelClient::HandleReceiverStatus(const Json::Value& payload) {
     }
   }
   if (app_vc_) {
-    // Already connected: track whether our app instance is still the running one. A
-    // status without it (no applications, another app, a relaunch) ends reuse.
+    // Already connected: track whether our app instance is still the running
+    // one. A status without it (no applications, another app, a relaunch) ends
+    // reuse.
     app_running_ = transport_id == app_vc_->peer_id;
     return;
   }

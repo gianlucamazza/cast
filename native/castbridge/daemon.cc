@@ -96,8 +96,9 @@ Json::Value MakeError(const std::string& code, const std::string& message) {
 }
 
 Json::Value MediaData(const MediaStatus& m) {
-  // An error-carrying status is worth forwarding even when inactive (a LOAD that failed
-  // before any active session) — otherwise the receiver's only failure signal is dropped.
+  // An error-carrying status is worth forwarding even when inactive (a LOAD
+  // that failed before any active session) — otherwise the receiver's only
+  // failure signal is dropped.
   if (!m.active && m.error.empty()) {
     return Json::Value::null;
   }
@@ -107,8 +108,9 @@ Json::Value MediaData(const MediaStatus& m) {
   d["position"] = m.position;
   d["duration"] = m.duration;
   d["mediaSessionId"] = m.media_session_id;
-  // Receiver track/error observability (ADR 0016): activeTrackIds confirms a side-loaded
-  // caption track was activated; error surfaces a codec/caption rejection.
+  // Receiver track/error observability (ADR 0016): activeTrackIds confirms a
+  // side-loaded caption track was activated; error surfaces a codec/caption
+  // rejection.
   Json::Value ids(Json::arrayValue);
   for (int id : m.active_track_ids) {
     ids.append(id);
@@ -171,8 +173,9 @@ bool IsOptionalHttpUrl(const std::string& s) {
                                             s.rfind("https://", 0) == 0));
 }
 
-// Empty, or a Cast application id: 2-32 alphanumeric chars (default receiver "CC1AD845";
-// a registered custom CAF receiver has a similar id — ADR 0013 nstream). Empty → default.
+// Empty, or a Cast application id: 2-32 alphanumeric chars (default receiver
+// "CC1AD845"; a registered custom CAF receiver has a similar id — ADR 0013
+// nstream). Empty → default.
 bool IsOptionalAppId(const std::string& s) {
   if (s.empty()) {
     return true;

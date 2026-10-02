@@ -57,10 +57,10 @@ class CastChannelClient
   // vtable is still live.
   void Shutdown();
 
-  // The device this client connected to, and whether its app is still the one running
-  // there: true from the app connection until a RECEIVER_STATUS shows the app gone or
-  // replaced (another sender launched something else). A caller reuses the session only
-  // while this holds.
+  // The device this client connected to, and whether its app is still the one
+  // running there: true from the app connection until a RECEIVER_STATUS shows
+  // the app gone or replaced (another sender launched something else). A caller
+  // reuses the session only while this holds.
   const openscreen::IPEndpoint& endpoint() const { return endpoint_; }
   bool app_running() const { return app_vc_.has_value() && app_running_; }
 
