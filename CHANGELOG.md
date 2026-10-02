@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-02
+
 ### Fixed
 
 - A `media-load` on a device whose media app is still running reuses the session: the
