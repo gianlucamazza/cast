@@ -2,8 +2,8 @@
 # and verified by build.sh. Keep in sync with patches/ when bumping.
 
 # Private fork carrying the patch on a dedicated branch (default/fast path:
-# clone this directly — no git am needed). Needs SSH access; CI without it
-# falls back to the upstream+patch path below (setup-openscreen.sh --from-upstream).
+# clone this directly — no git am needed). Needs SSH access; when unreachable
+# setup-openscreen.sh falls back to the upstream+patch path below automatically.
 fork=git@github.com:gianlucamazza/openscreen.git
 fork_branch=wayland-h264-sender
 

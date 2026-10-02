@@ -4,9 +4,10 @@
 #
 # Two strategies (hybrid), both end at the same patched tree:
 #   default        clone the private fork at its patched branch (fast, no git am;
-#                  needs SSH access to the fork)
+#                  needs SSH access to the fork — falls back to the upstream
+#                  strategy automatically when the fork is not reachable)
 #   --from-upstream  clone upstream openscreen at the pin and apply the versioned
-#                  patch (no fork access needed — use this in CI / for others)
+#                  patch (no fork access needed — CI and everyone else)
 #
 # Idempotent. After this completes, run build.sh to add and build castbridge.
 #
@@ -80,6 +81,14 @@ EOF
 fi
 
 # 3) get the checkout to the patched tree.
+# The fork is private: the fast path only works with SSH access to it. Probe
+# reachability non-interactively and fall back to upstream+patch — both
+# strategies end at the same tree (verified by the patched= invariant below).
+if [[ "$MODE" == fork ]] && ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
+	git ls-remote --exit-code "$FORK" "refs/heads/$FORK_BRANCH" >/dev/null 2>&1; then
+	echo "==> fork $FORK not reachable (private; needs SSH access) — falling back to upstream+patch"
+	MODE=upstream
+fi
 if [[ "$MODE" == fork ]]; then
 	echo "==> strategy: clone fork ($FORK @ $FORK_BRANCH)"
 	if [[ ! -d "$OPENSCREEN_DIR/.git" ]]; then
