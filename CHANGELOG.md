@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-02
+
+### Added
+
+- castbridge `media-load` takes `textLanguage`: once the media is loaded the daemon
+  sends `EDIT_TRACKS_INFO {language, enableTextTracks}`, activating an in-manifest text
+  track (an HLS WebVTT rendition) by language. Motivation, observed on a Philips
+  43PUS9235: `DEFAULT=YES` alone never makes the receiver fetch the subtitle playlist.
+  The activation itself is not yet verified on a receiver; the argument is optional and
+  nothing changes for callers that don't send it.
+- Receiver track and error observability: media status reports `activeTrackIds` and an
+  `error` (only on idleReason ERROR); LOAD_FAILED/INVALID_REQUEST before the first status
+  resolves the load as failed instead of hanging to the timeout.
+- `appId` on `media-load`: launch a custom CAF receiver instead of the Default Media
+  Receiver (hosted receiver under `native/receiver/`).
+
 ## [0.3.2] - 2026-06-10
 
 ### Added
