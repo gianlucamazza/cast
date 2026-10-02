@@ -48,7 +48,11 @@ validated), `seriesTitle`, `season`, `episode`, and an optional side-loaded capt
 track — `subtitleUrl` (http/https WebVTT URL, validated), `subtitleLang` (BCP-47/ISO
 code), `subtitleName` (menu label). When `subtitleUrl` is set the LOAD carries a single
 TEXT/SUBTITLES track and marks it active (the receiver fetches the VTT itself, so the
-server must send CORS headers). An optional `appId` (2-32 alphanumeric, validated;
+server must send CORS headers). An optional `textLanguage` (BCP-47, letters and `-`,
+≤16 chars, validated) activates an **in-manifest** text track once the media is loaded —
+an HLS master playlist's WebVTT rendition, whose track ids the receiver assigns — via
+`EDIT_TRACKS_INFO {language, enableTextTracks}`; `DEFAULT=YES` in the manifest alone
+does not activate it on the Default Media Receiver. An optional `appId` (2-32 alphanumeric, validated;
 empty → `kDefaultMediaReceiverAppId` = `CC1AD845`) launches a custom CAF receiver
 instead of the Default Media Receiver — the dormant hook for a Dolby-passthrough
 receiver (ADR 0013/nstream, `native/receiver/`). The LOAD carries a TvShow metadata block

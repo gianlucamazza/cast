@@ -67,6 +67,11 @@ struct LoadRequest {
   std::string subtitle_url;
   std::string subtitle_lang;
   std::string subtitle_name;
+  // Optional language (BCP-47) of an in-manifest text track to activate once the media
+  // is loaded — an HLS master playlist's WebVTT rendition, whose track ids the receiver
+  // assigns (nstream ADR 0042). Sent as EDIT_TRACKS_INFO {language}: DEFAULT=YES alone
+  // does not activate it on the Default Media Receiver (field 2026-10-02).
+  std::string text_language;
   // Optional Cast receiver application id to launch instead of the Default Media Receiver
   // (CC1AD845). Empty → CC1AD845 (unchanged). A registered custom CAF receiver (ADR 0013
   // nstream) can enable AC-3/E-AC-3 passthrough + native track selection; this is the enabling
@@ -111,6 +116,7 @@ class MediaReceiverClient final : public CastChannelClient {
 
  private:
   void SendLoad();
+  void SendTextLanguage();
   void HandleMediaStatus(const Json::Value& payload);
   void HandleMediaError(const std::string& type, const Json::Value& body);
   void FireReady(bool ok, const std::string& error);

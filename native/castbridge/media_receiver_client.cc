@@ -206,8 +206,21 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   }
   if (!loaded_) {
     loaded_ = true;
+    if (!request_.text_language.empty()) {
+      SendTextLanguage();
+    }
     FireReady(true, "");
   }
+}
+
+void MediaReceiverClient::SendTextLanguage() {
+  Json::Value m(Json::objectValue);
+  m["type"] = "EDIT_TRACKS_INFO";
+  m["requestId"] = NextRequestId();
+  m["mediaSessionId"] = media_session_id_;
+  m["language"] = request_.text_language;
+  m["enableTextTracks"] = true;
+  SendToApp(std::string(kMediaNamespace), Stringify(m));
 }
 
 void MediaReceiverClient::HandleMediaError(const std::string& type,

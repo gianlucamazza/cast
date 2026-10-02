@@ -342,6 +342,15 @@ bool HandleMediaLoad(IpcServer& server,
     (*resp)["error"] = MakeError("usage", "invalid subtitle URL");
     return false;
   }
+  const std::string text_language = args.get("textLanguage", "").asString();
+  if (text_language.size() > 16 ||
+      text_language.find_first_not_of(
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-") !=
+          std::string::npos) {
+    (*resp)["ok"] = false;
+    (*resp)["error"] = MakeError("usage", "invalid textLanguage");
+    return false;
+  }
   if (!IsOptionalAppId(args.get("appId", "").asString())) {
     (*resp)["ok"] = false;
     (*resp)["error"] = MakeError("usage", "invalid appId");
@@ -365,6 +374,7 @@ bool HandleMediaLoad(IpcServer& server,
   req.subtitle_url = args.get("subtitleUrl", "").asString();
   req.subtitle_lang = args.get("subtitleLang", "").asString();
   req.subtitle_name = args.get("subtitleName", "").asString();
+  req.text_language = text_language;
   req.app_id = args.get("appId", "").asString();
   const Json::Value id = (*resp)["id"];
   media.LoadAsync(ip, req, [&server, conn, id](bool ok, const std::string& e) {
