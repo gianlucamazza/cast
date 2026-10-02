@@ -5,7 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-02
+## [0.4.1] - 2026-10-02
+
+Same content as 0.4.0, released from the up-to-date `main`. The 0.4.0 tag had been cut
+from a stale local branch, and its unlisted AMO submission was interrupted. AMO
+version numbers are unique per add-on, so 0.4.0 stays consumed.
+
+## [0.4.0] - 2026-10-02 (not released)
 
 ### Added
 
