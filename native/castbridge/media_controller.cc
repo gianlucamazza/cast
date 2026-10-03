@@ -29,6 +29,8 @@ void MediaController::LoadAsync(std::string ip,
       return false;
     };
 
+    client_.reset();  // tear down any prior session
+
     const openscreen::ErrorOr<openscreen::IPAddress> addr =
         openscreen::IPAddress::Parse(ip);
     if (!addr.is_value()) {
@@ -37,25 +39,16 @@ void MediaController::LoadAsync(std::string ip,
     }
     const openscreen::IPEndpoint endpoint{addr.value(), 8009};
 
-    if (client_ && client_->CanReload(endpoint, request)) {
-      // Same device and app still running: LOAD on the live session. A reconnect would
-      // relaunch the app and INTERRUPT the playing media.
-      client_->Reload(request, [finish](bool ok, const std::string& e) {
-        finish(ok, e);
-      });
-    } else {
-      client_.reset();  // tear down any prior session
-      client_ = std::make_unique<MediaReceiverClient>(
-          task_runner_, openscreen::cast::CastTrustStore::Create(),
-          [this](const MediaStatus& s) { OnStatusUpdate(s); },
-          [this, finish](const std::string& e) {
-            finish(false, e);
-            OnClosed();
-          });
-      client_->Connect(
-          endpoint, request,
-          [finish](bool ok, const std::string& e) { finish(ok, e); });
-    }
+    client_ = std::make_unique<MediaReceiverClient>(
+        task_runner_, openscreen::cast::CastTrustStore::Create(),
+        [this](const MediaStatus& s) { OnStatusUpdate(s); },
+        [this, finish](const std::string& e) {
+          finish(false, e);
+          OnClosed();
+        });
+    client_->Connect(
+        endpoint, request,
+        [finish](bool ok, const std::string& e) { finish(ok, e); });
 
     // On timeout, also drop the half-open session so a retry starts clean —
     // but only if this load's client is still the current one.

@@ -19,22 +19,7 @@ std::string Stringify(const Json::Value& v) {
   return r.is_value() ? r.value() : std::string();
 }
 
-const std::string& EffectiveAppId(const std::string& app_id) {
-  static const std::string kDefault(kDefaultMediaReceiverAppId);
-  return app_id.empty() ? kDefault : app_id;
-}
-
 }  // namespace
-
-bool CanReuseSession(bool app_running,
-                     bool loaded,
-                     const openscreen::IPEndpoint& current,
-                     const std::string& current_app_id,
-                     const openscreen::IPEndpoint& target,
-                     const std::string& target_app_id) {
-  return app_running && loaded && current == target &&
-         EffectiveAppId(current_app_id) == EffectiveAppId(target_app_id);
-}
 
 MediaReceiverClient::MediaReceiverClient(
     openscreen::TaskRunner& task_runner,
@@ -56,21 +41,6 @@ void MediaReceiverClient::Connect(const openscreen::IPEndpoint& endpoint,
   request_ = std::move(request);
   on_ready_ = std::move(on_ready);
   ConnectInternal(endpoint);
-}
-
-bool MediaReceiverClient::CanReload(const openscreen::IPEndpoint& endpoint,
-                                    const LoadRequest& request) const {
-  return CanReuseSession(app_running(), loaded_ && on_ready_ == nullptr,
-                         this->endpoint(), request_.app_id, endpoint,
-                         request.app_id);
-}
-
-void MediaReceiverClient::Reload(LoadRequest request, ReadyCallback on_ready) {
-  superseded_session_id_ = media_session_id_;
-  request_ = std::move(request);
-  on_ready_ = std::move(on_ready);
-  loaded_ = false;
-  SendLoad();
 }
 
 void MediaReceiverClient::OnAppConnectionOpened(bool success) {
@@ -198,10 +168,6 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   const Json::Value& s = arr[0];
   MediaStatus st;
   st.media_session_id = s.get("mediaSessionId", 0).asInt();
-  if (superseded_session_id_ != 0 &&
-      st.media_session_id == superseded_session_id_) {
-    return;  // the media a Reload() replaced: its INTERRUPTED end is expected
-  }
   media_session_id_ = st.media_session_id;
   st.state = s.get("playerState", "").asString();
   // The receiver reports IDLE with an idleReason once playback ends (FINISHED),

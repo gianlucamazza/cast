@@ -53,28 +53,5 @@ TEST_F(MediaControllerTest, SnapshotDefaultsToInactive) {
   EXPECT_FALSE(controller_.Snapshot().active);
 }
 
-openscreen::IPEndpoint Device(const char* ip) {
-  return {openscreen::IPAddress::Parse(ip).value(), 8009};
-}
-
-TEST(CanReuseSessionTest, SameDeviceAndRunningAppReuses) {
-  const auto tv = Device("192.168.1.228");
-  EXPECT_TRUE(CanReuseSession(true, true, tv, "", tv, ""));
-  // An explicit Default Media Receiver id is the same app as the empty default.
-  EXPECT_TRUE(CanReuseSession(true, true, tv, "", tv, kDefaultMediaReceiverAppId));
-}
-
-TEST(CanReuseSessionTest, AnythingElseReconnects) {
-  const auto tv = Device("192.168.1.228");
-  const auto other = Device("192.168.1.229");
-  EXPECT_FALSE(CanReuseSession(false, true, tv, "", tv, ""))
-      << "app gone or replaced on the receiver";
-  EXPECT_FALSE(CanReuseSession(true, false, tv, "", tv, ""))
-      << "the first LOAD is still pending";
-  EXPECT_FALSE(CanReuseSession(true, true, tv, "", other, ""));
-  EXPECT_FALSE(CanReuseSession(true, true, tv, "", tv, "07841171"))
-      << "a different receiver app needs its own LAUNCH";
-}
-
 }  // namespace
 }  // namespace castbridge

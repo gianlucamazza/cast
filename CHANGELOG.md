@@ -5,15 +5,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
-### Fixed
-
-- A `media-load` on a device whose media app is still running reuses the session: the
-  LOAD goes on the open media channel instead of reconnecting and relaunching the app.
-  Every LOAD used to tear the session down, which INTERRUPTED the playing media; on a
-  Philips 43PUS9235 a re-LOAD during live HLS playback left the TV IDLE or stuck in
-  BUFFERING. Statuses of the replaced media no longer read as the session ending. A
-  different device or receiver app, or an app another sender replaced, still reconnects.
-
 ## [0.4.1] - 2026-10-02
 
 Same content as 0.4.0, released from the up-to-date `main`. The 0.4.0 tag had been cut

@@ -57,13 +57,6 @@ class CastChannelClient
   // vtable is still live.
   void Shutdown();
 
-  // The device this client connected to, and whether its app is still the one running
-  // there: true from the app connection until a RECEIVER_STATUS shows the app gone or
-  // replaced (another sender launched something else). A caller reuses the session only
-  // while this holds.
-  const openscreen::IPEndpoint& endpoint() const { return endpoint_; }
-  bool app_running() const { return app_vc_.has_value() && app_running_; }
-
  protected:
   // Connect the TLS socket and start the launch handshake. A subclass Connect()
   // stores its own one-shot callback first, then calls this.
@@ -133,8 +126,6 @@ class CastChannelClient
   openscreen::cast::SenderSocketFactory socket_factory_;
   std::unique_ptr<openscreen::TlsConnectionFactory> connection_factory_;
 
-  openscreen::IPEndpoint endpoint_;
-  bool app_running_ = false;
   int socket_id_ = 0;
   int next_request_id_ = 1;
   std::optional<openscreen::cast::VirtualConnection> platform_vc_;
