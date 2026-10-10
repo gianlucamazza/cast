@@ -37,10 +37,9 @@ What remains is exactly what an operator (not the code) must provide.
 1. **Register an application id** in the [Google Cast Developer Console](https://cast.google.com/publish)
    (Google account + one-time $5 developer registration). Create a **Custom Receiver**, set its
    URL to **https://gianlucamazza.it/cast-receiver/index.html** (already hosted, step 2 ✅).
-   Register your test device's serial (the Philips at 192.168.1.228) for unpublished testing.
-   _Blocker: the $5 fee currently fails at CheBanca/Nexi 3DS — unblock the card or use another._
+   Register your test device's serial (the receiver at `<tv-ip>`) for unpublished testing.
 2. ~~**Host `index.html` over HTTPS**~~ **DONE** — deployed via the `personal-website` repo (PR
-   merged → GHCR → odroid), live at `https://gianlucamazza.it/cast-receiver/index.html` (HTTP 200,
+   merged → GHCR → `<host>`), live at `https://gianlucamazza.it/cast-receiver/index.html` (HTTP 200,
    CSP allows the gstatic CAF SDK). Register at the apex; www 301s to it.
 3. **Point castbridge at it** — send the registered app id as the `appId` media-load arg. From
    nstream, thread it through `bridge.cast_load(app_id=...)` (a future `cast_receiver_app_id`
