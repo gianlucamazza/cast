@@ -58,7 +58,7 @@ openscreen::IPEndpoint Device(const char* ip) {
 }
 
 TEST(CanReuseSessionTest, SameDeviceAndRunningAppReuses) {
-  const auto tv = Device("192.168.1.228");
+  const auto tv = Device("192.0.2.10");
   EXPECT_TRUE(CanReuseSession(true, true, tv, "", tv, ""));
   // An explicit Default Media Receiver id is the same app as the empty default.
   EXPECT_TRUE(
@@ -66,8 +66,8 @@ TEST(CanReuseSessionTest, SameDeviceAndRunningAppReuses) {
 }
 
 TEST(CanReuseSessionTest, AnythingElseReconnects) {
-  const auto tv = Device("192.168.1.228");
-  const auto other = Device("192.168.1.229");
+  const auto tv = Device("192.0.2.10");
+  const auto other = Device("192.0.2.11");
   EXPECT_FALSE(CanReuseSession(false, true, tv, "", tv, ""))
       << "app gone or replaced on the receiver";
   EXPECT_FALSE(CanReuseSession(true, false, tv, "", tv, ""))
