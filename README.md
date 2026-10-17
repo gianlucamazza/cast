@@ -43,7 +43,7 @@ This product spans three repos — one product, its build base, and a predecesso
   plus the Wayland/H.264 mirror patch. It provides the Cast library and the `cast_sender`
   binary that `castbridge` links and spawns. `native/castbridge/` is symlinked into this
   fork's checkout at build time (see `native/integration/`).
-- **[gianlucamazza/skill-cast](https://github.com/gianlucamazza/skill-cast)** —
+- **[gianlucamazza/skill-cast](https://github.com/gianlucamazza/skill-cast)** (archived) —
   predecessor: the Hyprland desktop-mirror Claude Code skill that this project supersedes;
   its native `cast_sender` work lives on in the openscreen fork.
 
