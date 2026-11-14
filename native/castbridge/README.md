@@ -73,6 +73,20 @@ error-carrying status is serialized even when the session is inactive (ADR 0016/
 Error codes the extension reacts to: `ambiguous`, `no_devices`, `no_window`,
 `no_wm`, plus relay-level `nohost`/`timeout`.
 
+## Media control recovery
+
+Media status carries optional `endReason`: `finished`, `stopped`, `interrupted`, or
+`disconnected`, including inactive status blocks. A transport failure preserves the last
+position and duration and is not a media completion. Observers must not infer completion
+from `session: idle` alone.
+
+After a loaded session loses its transport, control tries to reconnect after 1, 2 and
+4 seconds (12-second timeout per attempt). Reattachment uses platform/media GET_STATUS,
+never LAUNCH or LOAD. The original app-session id, media-session id and content id must
+match; another activity is never adopted. Transport cleanup sends no STOP; explicit stop
+and intentional replacement stop only verified media. Stop/replacement invalidates pending
+retries. No source URLs are included in recovery logs or terminal reasons.
+
 ## Build
 
 Not built standalone — see [`../integration/`](../integration/) (it links the

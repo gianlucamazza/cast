@@ -45,6 +45,7 @@ struct MediaStatus {
   // so a codec or caption rejection is diagnosable instead of reading as a
   // silent success.
   std::string error;
+  std::string end_reason;  // finished | stopped | interrupted | disconnected
 };
 
 struct LoadRequest {
@@ -97,6 +98,11 @@ bool CanReuseSession(bool app_running,
                      const openscreen::IPEndpoint& target,
                      const std::string& target_app_id);
 
+bool CanReattachMedia(int expected_id,
+                      const std::string& expected_url,
+                      int actual_id,
+                      const std::string& actual_url);
+
 class MediaReceiverClient final : public CastChannelClient {
  public:
   using StatusCallback = std::function<void(const MediaStatus&)>;
@@ -112,6 +118,13 @@ class MediaReceiverClient final : public CastChannelClient {
   void Connect(const openscreen::IPEndpoint& endpoint,
                LoadRequest request,
                ReadyCallback on_ready);
+
+  // Attach to exactly the existing app/media; never LAUNCH or LOAD.
+  void Attach(const openscreen::IPEndpoint& endpoint,
+              LoadRequest request,
+              int media_session_id,
+              std::string app_session_id,
+              ReadyCallback on_ready);
 
   // True when a LOAD of `request` on `endpoint` can use Reload().
   bool CanReload(const openscreen::IPEndpoint& endpoint,
@@ -153,6 +166,8 @@ class MediaReceiverClient final : public CastChannelClient {
 
   LoadRequest request_;
   bool loaded_ = false;
+  bool attaching_ = false;
+  std::string expected_app_session_id_;
   int media_session_id_ = 0;
   // The media session a Reload() replaced; its late statuses are ignored.
   int superseded_session_id_ = 0;

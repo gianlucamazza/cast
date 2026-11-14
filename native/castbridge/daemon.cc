@@ -99,11 +99,14 @@ Json::Value MediaData(const MediaStatus& m) {
   // An error-carrying status is worth forwarding even when inactive (a LOAD
   // that failed before any active session) — otherwise the receiver's only
   // failure signal is dropped.
-  if (!m.active && m.error.empty()) {
+  if (!m.active && m.error.empty() && m.end_reason.empty()) {
     return Json::Value::null;
   }
   Json::Value d(Json::objectValue);
   d["state"] = m.state;
+  if (!m.end_reason.empty()) {
+    d["endReason"] = m.end_reason;
+  }
   d["title"] = m.title;
   d["position"] = m.position;
   d["duration"] = m.duration;

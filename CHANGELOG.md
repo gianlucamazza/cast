@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+### Fixed
+
+- Distinguish media completion, explicit stop, interruption and control disconnection via
+  `endReason`. Preserve position/duration when TLS fails instead of announcing a false end.
+- Reattach existing media control with three bounded GET_STATUS attempts, without LAUNCH,
+  LOAD or implicit STOP. Reject changed app/media/content identities and cancel stale
+  retries after stop/replacement; protect queued connection callbacks with weak pointers.
+
 ## [0.4.3] - 2026-11-14
 
 ### Fixed

@@ -57,14 +57,17 @@ CastChannelClient::CastChannelClient(
 
 CastChannelClient::~CastChannelClient() = default;
 
-void CastChannelClient::ConnectInternal(
-    const openscreen::IPEndpoint& endpoint) {
+void CastChannelClient::ConnectInternal(const openscreen::IPEndpoint& endpoint,
+                                        bool attach_only) {
   endpoint_ = endpoint;
-  task_runner_.PostTask([this, endpoint] {
-    socket_factory_.Connect(endpoint,
-                            openscreen::cast::SenderSocketFactory::
-                                DeviceMediaPolicy::kIncludesVideo,
-                            &router_);
+  attach_only_ = attach_only;
+  task_runner_.PostTask([weak = weak_factory_.GetWeakPtr(), endpoint] {
+    if (!weak)
+      return;
+    weak->socket_factory_.Connect(endpoint,
+                                  openscreen::cast::SenderSocketFactory::
+                                      DeviceMediaPolicy::kIncludesVideo,
+                                  &weak->router_);
   });
 }
 
@@ -80,7 +83,10 @@ void CastChannelClient::OnConnected(
                                          std::string(kPlatformReceiverId),
                                          socket_id_});
   connection_handler_.OpenRemoteConnection(
-      *platform_vc_, [this](bool success) { OnPlatformOpened(success); });
+      *platform_vc_, [weak = weak_factory_.GetWeakPtr()](bool success) {
+        if (weak)
+          weak->OnPlatformOpened(success);
+      });
 }
 
 void CastChannelClient::OnError(openscreen::cast::SenderSocketFactory* factory,
@@ -119,7 +125,14 @@ void CastChannelClient::OnPlatformOpened(bool success) {
     OnConnectError("failed to open receiver connection");
     return;
   }
-  SendLaunch();
+  if (attach_only_) {
+    Json::Value m(Json::objectValue);
+    m["type"] = "GET_STATUS";
+    m["requestId"] = next_request_id_++;
+    SendToPlatform(std::string(kReceiverNamespace), Stringify(m));
+  } else {
+    SendLaunch();
+  }
   ScheduleHeartbeat();  // keep the control channel alive
 }
 
@@ -211,6 +224,9 @@ void CastChannelClient::HandleReceiverStatus(const Json::Value& payload) {
     return;
   }
   if (transport_id.empty()) {
+    if (attach_only_) {
+      OnConnectError("receiver app is no longer running");
+    }
     return;  // app not (yet) running
   }
   app_running_ = true;
@@ -264,12 +280,16 @@ void CastChannelClient::SetMuted(bool muted) {
   SendToPlatform(std::string(kReceiverNamespace), Stringify(m));
 }
 
-void CastChannelClient::Shutdown() {
+void CastChannelClient::Shutdown(bool stop_media) {
   // Explicit teardown must never announce itself as a remote close: the
   // on_closed_ chain belongs to the session being torn down, and firing it
   // here can destroy a successor client the controller just created.
   on_closed_ = nullptr;
-  OnBeforeShutdown();
+  weak_factory_.InvalidateWeakPtrs();
+  heartbeat_alarm_.Cancel();
+  if (stop_media) {
+    OnBeforeShutdown();
+  }
   if (app_vc_) {
     const VirtualConnection vc = *app_vc_;
     app_vc_.reset();

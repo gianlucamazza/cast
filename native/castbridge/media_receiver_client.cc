@@ -36,6 +36,14 @@ bool CanReuseSession(bool app_running,
          EffectiveAppId(current_app_id) == EffectiveAppId(target_app_id);
 }
 
+bool CanReattachMedia(int expected_id,
+                      const std::string& expected_url,
+                      int actual_id,
+                      const std::string& actual_url) {
+  return expected_id > 0 && expected_id == actual_id && !expected_url.empty() &&
+         expected_url == actual_url;
+}
+
 MediaReceiverClient::MediaReceiverClient(
     openscreen::TaskRunner& task_runner,
     std::unique_ptr<openscreen::cast::TrustStore> trust_store,
@@ -47,7 +55,7 @@ MediaReceiverClient::MediaReceiverClient(
       on_status_(std::move(on_status)) {}
 
 MediaReceiverClient::~MediaReceiverClient() {
-  Shutdown();
+  Shutdown(false);
 }
 
 void MediaReceiverClient::Connect(const openscreen::IPEndpoint& endpoint,
@@ -56,6 +64,19 @@ void MediaReceiverClient::Connect(const openscreen::IPEndpoint& endpoint,
   request_ = std::move(request);
   on_ready_ = std::move(on_ready);
   ConnectInternal(endpoint);
+}
+
+void MediaReceiverClient::Attach(const openscreen::IPEndpoint& endpoint,
+                                 LoadRequest request,
+                                 int media_session_id,
+                                 std::string app_session_id,
+                                 ReadyCallback on_ready) {
+  request_ = std::move(request);
+  media_session_id_ = media_session_id;
+  expected_app_session_id_ = std::move(app_session_id);
+  on_ready_ = std::move(on_ready);
+  attaching_ = true;
+  ConnectInternal(endpoint, true);
 }
 
 bool MediaReceiverClient::CanReload(const openscreen::IPEndpoint& endpoint,
@@ -78,7 +99,18 @@ void MediaReceiverClient::OnAppConnectionOpened(bool success) {
     FireReady(false, "failed to open media app connection");
     return;
   }
-  SendLoad();
+  if (attaching_) {
+    if (receiver_session_id() != expected_app_session_id_) {
+      FireReady(false, "receiver app session changed");
+      return;
+    }
+    Json::Value m(Json::objectValue);
+    m["type"] = "GET_STATUS";
+    m["requestId"] = NextRequestId();
+    SendToApp(std::string(kMediaNamespace), Stringify(m));
+  } else {
+    SendLoad();
+  }
 }
 
 void MediaReceiverClient::OnAppMessage(const std::string& ns,
@@ -198,6 +230,16 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   const Json::Value& s = arr[0];
   MediaStatus st;
   st.media_session_id = s.get("mediaSessionId", 0).asInt();
+  const bool reattached = attaching_;
+  if (attaching_) {
+    if (!CanReattachMedia(media_session_id_, request_.url, st.media_session_id,
+                          s["media"].get("contentId", "").asString()) ||
+        s.get("playerState", "").asString() == "IDLE") {
+      FireReady(false, "receiver media session changed");
+      return;
+    }
+    attaching_ = false;
+  }
   if (superseded_session_id_ != 0 &&
       st.media_session_id == superseded_session_id_) {
     return;  // the media a Reload() replaced: its INTERRUPTED end is expected
@@ -216,6 +258,11 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   // Only ERROR is a genuine fault; FINISHED/CANCELLED/INTERRUPTED are normal
   // ends (a natural finish or a new LOAD replacing this one) and must not read
   // as errors.
+  if (idle_reason == "FINISHED") {
+    st.end_reason = "finished";
+  } else if (idle_reason == "CANCELLED" || idle_reason == "INTERRUPTED") {
+    st.end_reason = "interrupted";
+  }
   if (idle_reason == "ERROR") {
     st.error = idle_reason;
   }
@@ -242,7 +289,7 @@ void MediaReceiverClient::HandleMediaStatus(const Json::Value& payload) {
   }
   if (!loaded_) {
     loaded_ = true;
-    if (!request_.text_language.empty()) {
+    if (!reattached && !request_.text_language.empty()) {
       SendTextLanguage();
     }
     FireReady(true, "");

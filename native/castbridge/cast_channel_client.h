@@ -27,6 +27,7 @@
 #include "platform/api/tls_connection_factory.h"
 #include "platform/base/ip_address.h"
 #include "util/alarm.h"
+#include "util/weak_ptr.h"
 
 namespace Json {
 class Value;
@@ -55,19 +56,21 @@ class CastChannelClient
   // Tear down app/platform connections and the socket. Idempotent; subclass
   // destructors call this. OnBeforeShutdown() runs first, while the subclass
   // vtable is still live.
-  void Shutdown();
+  void Shutdown(bool stop_media = true);
 
   // The device this client connected to, and whether its app is still the one
   // running there: true from the app connection until a RECEIVER_STATUS shows
   // the app gone or replaced (another sender launched something else). A caller
   // reuses the session only while this holds.
   const openscreen::IPEndpoint& endpoint() const { return endpoint_; }
+  const std::string& receiver_session_id() const { return app_session_id_; }
   bool app_running() const { return app_vc_.has_value() && app_running_; }
 
  protected:
   // Connect the TLS socket and start the launch handshake. A subclass Connect()
   // stores its own one-shot callback first, then calls this.
-  void ConnectInternal(const openscreen::IPEndpoint& endpoint);
+  void ConnectInternal(const openscreen::IPEndpoint& endpoint,
+                       bool attach_only = false);
 
   // Send a message on the platform (receiver) or app virtual connection. No-op
   // if the respective connection is not open.
@@ -135,6 +138,7 @@ class CastChannelClient
 
   openscreen::IPEndpoint endpoint_;
   bool app_running_ = false;
+  bool attach_only_ = false;
   int socket_id_ = 0;
   int next_request_id_ = 1;
   std::optional<openscreen::cast::VirtualConnection> platform_vc_;
@@ -142,6 +146,7 @@ class CastChannelClient
   std::string app_local_id_;
   std::string app_session_id_;
   openscreen::Alarm heartbeat_alarm_;
+  openscreen::WeakPtrFactory<CastChannelClient> weak_factory_{this};
 };
 
 }  // namespace castbridge

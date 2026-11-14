@@ -5,6 +5,7 @@
 #ifndef CAST_CASTBRIDGE_MEDIA_CONTROLLER_H_
 #define CAST_CASTBRIDGE_MEDIA_CONTROLLER_H_
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -35,13 +36,15 @@ class MediaController {
   // Destroy the cast client. MUST be called on the TaskRunner thread
   // (openscreen objects assert thread affinity on destruction). Used for clean
   // shutdown.
-  void ResetClient() { client_.reset(); }
+  void ResetClient();
 
   MediaStatus Snapshot() const;
 
  private:
+  friend class MediaControllerRecoveryTest;
   void OnStatusUpdate(const MediaStatus& status);
-  void OnClosed();
+  void OnClosed(uint64_t epoch);
+  void ScheduleReconnect(uint64_t epoch);
 
   openscreen::TaskRunner& task_runner_;
   StatusBroadcast on_status_;
@@ -52,6 +55,15 @@ class MediaController {
 
   mutable std::mutex mutex_;
   MediaStatus status_;
+  uint64_t epoch_ = 0;
+  int reconnect_attempt_ = 0;
+  bool closing_ = false;
+  bool had_session_ = false;
+  bool recovering_ = false;
+  LoadRequest last_request_;
+  openscreen::IPEndpoint last_endpoint_;
+  std::string last_app_session_;
+  int last_media_session_ = 0;
 };
 
 }  // namespace castbridge
