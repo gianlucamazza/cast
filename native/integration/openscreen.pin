@@ -6,6 +6,10 @@
 # setup-openscreen.sh falls back to the upstream+patch path below automatically.
 fork=git@github.com:gianlucamazza/openscreen.git
 fork_branch=wayland-h264-sender
+# The fork commit this release was cut from (the branch keeps moving). Written by
+# regen-patch.sh; the fork strategy checks it out, and falls back to upstream+patch
+# when it is gone or its tree is not patched=.
+fork_commit=6bcf24c0c916e172ea18c2a155f2ab16967812e5
 
 # Upstream openscreen commit the patch applies cleanly onto.
 pin=7675ef66c2f5901d798a3e3f3aae97ca9c96c2f6
@@ -18,7 +22,7 @@ patch=patches/0001-wayland-h264-cast-streaming-sender.patch
 # verified invariant). A TREE hash, not a commit: the `git am` commit hash varies
 # with the committer date, the tree does not. Generated/verified by
 # regen-patch.sh — do not edit by hand.
-patched=0d5ab2ec9c92cde8852bdfbb242d7d69e5d8cd09
+patched=69db1e60bf6bff427460019f172fae40b7053f37
 
 # gn args for out/Default (the mirror build needs ffmpeg/opus/vpx; SDL2 is used
 # by the upstream sample sender).
