@@ -21,7 +21,7 @@ OUT_DIR="${OUT_DIR:-out/Default}"
 	echo "provision it first: bash native/integration/setup-openscreen.sh" >&2
 	exit 1
 }
-[[ -f "$OPENSCREEN_DIR/$OUT_DIR/args.gn" ]] || {
+[[ -f "$OPENSCREEN_DIR/$OUT_DIR/build.ninja" ]] || {
 	echo "no gn out dir at $OPENSCREEN_DIR/$OUT_DIR (configure the build first)" >&2
 	echo "provision it first: bash native/integration/setup-openscreen.sh" >&2
 	exit 1
@@ -35,8 +35,13 @@ OUT_DIR="${OUT_DIR:-out/Default}"
 }
 
 # ninja drives the build; it auto-regenerates the gn graph via the buildtools
-# gn recorded in build.ninja, so a separate gn on PATH is not required.
-NINJA="${NINJA:-$(command -v ninja || echo "$OPENSCREEN_DIR/../depot_tools/ninja")}"
+# gn recorded in build.ninja, so a separate gn on PATH is not required. Prefer
+# the DEPS-pinned ninja so every build uses the same one (depot_tools' ninja is
+# a python wrapper that needs a bootstrapped depot_tools).
+if [[ -z "${NINJA:-}" ]]; then
+	NINJA="$OPENSCREEN_DIR/third_party/ninja/ninja"
+	[[ -x "$NINJA" ]] || NINJA="$(command -v ninja || true)"
+fi
 [[ -x "$NINJA" ]] || {
 	echo "ninja not found (looked for: $NINJA)" >&2
 	echo "install ninja or set \$NINJA to the binary" >&2

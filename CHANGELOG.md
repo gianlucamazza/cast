@@ -5,6 +5,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-14
+
+### Fixed
+
+- The castbridge build is reproducible again. The fork path checks out the pinned
+  `fork_commit` instead of the moving branch tip, and falls back to upstream + patch
+  when that commit is gone or its tree differs, instead of failing.
+- The AUR package always builds upstream + the versioned patch (`FROM_UPSTREAM=1`):
+  the result no longer depends on access to the private fork.
+- `git am` runs with a local build identity and without signing, so a build works
+  without a git identity and never prompts a signing agent.
+- `gn gen` uses the DEPS-pinned `buildtools/linux64/gn`, and depot_tools is
+  bootstrapped when needed; a fresh checkout used to fail with
+  `python3_bin_reldir.txt not found`.
+- A failed `gn gen` no longer leaves the tree looking configured (the check is on
+  `build.ninja`, not `args.gn`).
+- A fresh checkout links the castbridge sources before `gn gen`: the patch wires
+  `cast/castbridge` into `gn_all`, so gn could not load the graph on a new tree.
+- ninja defaults to the DEPS-pinned `third_party/ninja/ninja` instead of whatever is
+  on `PATH`.
+- Regenerated the openscreen patch and pin (the 0.4.2 patch had been edited by hand,
+  so neither build strategy reproduced `patched=`).
+
 ## [0.4.2] - 2026-10-02
 
 ### Fixed

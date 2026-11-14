@@ -68,7 +68,7 @@ jobs:
         # user's machine otherwise. (Full patch<->fork verification needs fork
         # SSH access: run `regen-patch.sh --verify-only` locally for that.)
         run: |
-          for key in fork fork_branch pin patch patched gn_args; do
+          for key in fork fork_branch fork_commit pin patch patched gn_args; do
             grep -qE "^${key}=." native/integration/openscreen.pin \
               || { echo "openscreen.pin: missing ${key}="; exit 1; }
           done

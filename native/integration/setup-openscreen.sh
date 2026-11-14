@@ -39,6 +39,7 @@ PATCHED="$(read_pin patched)"
 GN_ARGS="$(read_pin gn_args)"
 FORK="$(read_pin fork)"
 FORK_BRANCH="$(read_pin fork_branch)"
+FORK_COMMIT="$(read_pin fork_commit)"
 PATCH="$HERE/$PATCH_REL"
 [[ -n "$PIN" && -f "$PATCH" ]] || {
 	echo "pin/patch not resolved from $PIN_FILE" >&2
@@ -46,7 +47,8 @@ PATCH="$HERE/$PATCH_REL"
 }
 
 # Default to the fork checkout sibling of this repo (../openscreen-build/openscreen);
-# override with $OPENSCREEN_DIR for any other layout (CI, packaging).
+# override with $OPENSCREEN_DIR for any other layout (CI, packaging, a workspace
+# where repos and build trees live apart).
 REPO_DIR="$(cd "$HERE/../.." && pwd)"
 OPENSCREEN_DIR="${OPENSCREEN_DIR:-$(dirname "$REPO_DIR")/openscreen-build/openscreen}"
 OUT_DIR="${OUT_DIR:-out/Default}"
@@ -60,6 +62,22 @@ if [[ ! -d "$DEPOT_TOOLS" ]]; then
 fi
 export PATH="$DEPOT_TOOLS:$PATH"
 export DEPOT_TOOLS_UPDATE="${DEPOT_TOOLS_UPDATE:-0}"
+# With updates off, gclient never runs update_depot_tools — the only caller of
+# bootstrap_python3 — and depot_tools' python wrappers then refuse to run.
+# ensure_bootstrap does the bootstrap without a git update.
+if [[ ! -f "$DEPOT_TOOLS/python3_bin_reldir.txt" ]]; then
+	echo "==> bootstrapping depot_tools"
+	"$DEPOT_TOOLS/ensure_bootstrap"
+fi
+
+# `git am` creates a commit: give it a local identity and never sign, so the
+# build works without a git identity and never prompts a signing agent. The
+# result is checked by TREE (patched=), so the commit metadata is irrelevant.
+git_am() {
+	git -C "$OPENSCREEN_DIR" -c user.name="castbridge build" \
+		-c user.email=build@castbridge.invalid -c commit.gpgsign=false \
+		am --no-gpg-sign "$@"
+}
 
 # 2) gclient solution (unmanaged: we control the openscreen checkout ourselves;
 #    the DEPS are identical for fork and upstream, so the solution url stays
@@ -90,16 +108,23 @@ if [[ "$MODE" == fork ]] && ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatch
 	MODE=upstream
 fi
 if [[ "$MODE" == fork ]]; then
-	echo "==> strategy: clone fork ($FORK @ $FORK_BRANCH)"
+	echo "==> strategy: clone fork ($FORK @ ${FORK_COMMIT:-$FORK_BRANCH})"
 	if [[ ! -d "$OPENSCREEN_DIR/.git" ]]; then
 		git clone --branch "$FORK_BRANCH" "$FORK" "$OPENSCREEN_DIR"
-	else
-		git -C "$OPENSCREEN_DIR" remote get-url fork >/dev/null 2>&1 ||
-			git -C "$OPENSCREEN_DIR" remote add fork "$FORK"
-		git -C "$OPENSCREEN_DIR" fetch fork "$FORK_BRANCH"
-		git -C "$OPENSCREEN_DIR" checkout -B "$FORK_BRANCH" "fork/$FORK_BRANCH"
 	fi
-else
+	git -C "$OPENSCREEN_DIR" remote get-url fork >/dev/null 2>&1 ||
+		git -C "$OPENSCREEN_DIR" remote add fork "$FORK"
+	git -C "$OPENSCREEN_DIR" fetch fork "$FORK_BRANCH"
+	# The branch keeps moving; build the commit this release was cut from.
+	if git -C "$OPENSCREEN_DIR" checkout --detach "${FORK_COMMIT:-fork/$FORK_BRANCH}" &&
+		[[ -z "$PATCHED" || "$(git -C "$OPENSCREEN_DIR" rev-parse 'HEAD^{tree}')" == "$PATCHED" ]]; then
+		:
+	else
+		echo "==> fork ${FORK_COMMIT:-$FORK_BRANCH} does not give tree $PATCHED; falling back to upstream+patch" >&2
+		MODE=upstream
+	fi
+fi
+if [[ "$MODE" == upstream ]]; then
 	echo "==> strategy: upstream + patch (pin $PIN)"
 	if [[ ! -d "$OPENSCREEN_DIR/.git" ]]; then
 		git clone https://chromium.googlesource.com/openscreen.git "$OPENSCREEN_DIR"
@@ -111,10 +136,13 @@ else
 	if [[ "$(git -C "$OPENSCREEN_DIR" rev-parse 'HEAD^{tree}')" == "$PATCHED" ]]; then
 		echo "==> patch already applied (tree == $PATCHED); skipping checkout/am"
 	else
-		git -C "$OPENSCREEN_DIR" fetch --tags origin "$PIN" || git -C "$OPENSCREEN_DIR" fetch origin
+		# The pin lives upstream (and in the fork's history); fetch it from whichever
+		# remote this checkout came from.
+		git -C "$OPENSCREEN_DIR" cat-file -e "${PIN}^{commit}" 2>/dev/null ||
+			git -C "$OPENSCREEN_DIR" fetch https://chromium.googlesource.com/openscreen.git "$PIN"
 		git -C "$OPENSCREEN_DIR" checkout --detach "$PIN"
 		echo "==> applying $PATCH_REL"
-		git -C "$OPENSCREEN_DIR" am "$PATCH" || {
+		git_am "$PATCH" || {
 			git -C "$OPENSCREEN_DIR" am --abort || true
 			echo "patch failed to apply on $PIN — the pin or patch is stale" >&2
 			exit 1
@@ -141,12 +169,25 @@ fi
 echo "==> gclient sync (downloads ~GB of deps on a fresh tree)"
 (cd "$OPENSCREEN_DIR" && gclient sync --no-history --shallow)
 
-# 5) configure the gn output dir.
-if [[ ! -f "$OPENSCREEN_DIR/$OUT_DIR/args.gn" ]]; then
+# 5) configure the gn output dir. The patch wires cast/castbridge into gn_all, so
+# the castbridge sources must be linked in before gn can load the graph (build.sh
+# keeps re-linking them; this only covers a fresh checkout).
+if [[ ! -e "$OPENSCREEN_DIR/cast/castbridge" ]]; then
+	ln -sfn "$REPO_DIR/native/castbridge" "$OPENSCREEN_DIR/cast/castbridge"
+fi
+# build.ninja, not args.gn: a failed `gn gen` leaves args.gn behind.
+if [[ ! -f "$OPENSCREEN_DIR/$OUT_DIR/build.ninja" ]]; then
 	echo "==> gn gen $OUT_DIR with: $GN_ARGS"
-	(cd "$OPENSCREEN_DIR" && gn gen "$OUT_DIR" --args="$GN_ARGS")
+	# The DEPS-pinned gn from the checkout, not depot_tools' python wrapper. Resolved
+	# inside the subshell, after the cd, so a relative $OPENSCREEN_DIR works too.
+	(
+		cd "$OPENSCREEN_DIR"
+		GN="$PWD/buildtools/linux64/gn"
+		[[ -x "$GN" ]] || GN="gn"
+		"$GN" gen "$OUT_DIR" --args="$GN_ARGS"
+	)
 else
-	echo "==> $OUT_DIR/args.gn already present; leaving as-is"
+	echo "==> $OUT_DIR already configured; leaving as-is"
 fi
 
 echo

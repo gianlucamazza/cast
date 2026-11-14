@@ -79,6 +79,7 @@ OS merge-base --is-ancestor "$PIN" "$BRANCH_REF" || {
 }
 
 TREE="$(OS rev-parse "${BRANCH_REF}^{tree}")"
+COMMIT="$(OS rev-parse "${BRANCH_REF}^{commit}")"
 
 # 3) cut a deterministic squashed patch (pin -> branch tree). Author/date come
 #    from the branch tip so the patch file is reproducible run-to-run; the commit
@@ -103,7 +104,8 @@ cleanup() {
 }
 trap cleanup EXIT
 OS worktree add --detach "$WT" "$PIN" >/dev/null
-git -C "$WT" am "$TMP_PATCH" >/dev/null || {
+git -C "$WT" -c user.name="castbridge build" -c user.email=build@castbridge.invalid \
+	-c commit.gpgsign=false am --no-gpg-sign "$TMP_PATCH" >/dev/null || {
 	git -C "$WT" am --abort 2>/dev/null || true
 	echo "FAIL: freshly cut patch does not apply onto pin $PIN" >&2
 	exit 1
@@ -122,6 +124,10 @@ if [[ "$VERIFY_ONLY" == 1 ]]; then
 	ok=1
 	if [[ "$PATCHED" != "$TREE" ]]; then
 		echo "DRIFT: pin patched=$PATCHED != fork branch tree $TREE" >&2
+		ok=0
+	fi
+	if [[ "$(read_pin fork_commit)" != "$COMMIT" ]]; then
+		echo "DRIFT: pin fork_commit=$(read_pin fork_commit) != $BRANCH_REF ($COMMIT)" >&2
 		ok=0
 	fi
 	if ! cmp -s "$TMP_PATCH" "$PATCH"; then
@@ -145,6 +151,12 @@ if grep -qE '^patched=' "$PIN_FILE"; then
 else
 	printf 'patched=%s\n' "$TREE" >>"$PIN_FILE"
 fi
+if grep -qE '^fork_commit=' "$PIN_FILE"; then
+	sed -i "s#^fork_commit=.*#fork_commit=$COMMIT#" "$PIN_FILE"
+else
+	printf 'fork_commit=%s\n' "$COMMIT" >>"$PIN_FILE"
+fi
 
 echo "regenerated $PATCH_REL"
 echo "patched=$TREE  (verified: pin + patch == $BRANCH_REF tree)"
+echo "fork_commit=$COMMIT"

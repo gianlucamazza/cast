@@ -1,11 +1,12 @@
-From a7f850dae7833e607b818b72957da5d8682b51f5 Mon Sep 17 00:00:00 2001
-From: Gianluca <info@gianlucamazza.it>
-Date: Thu, 4 Jun 2026 18:01:37 +0200
+From ee3f6e47dadf6db7ddda8ef026395a8139cb178a Mon Sep 17 00:00:00 2001
+From: Gianluca Mazza <info@gianlucamazza.it>
+Date: Sat, 10 Oct 2026 21:30:19 +0200
 Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  sender
 
 ---
  BUILD.gn                                      |   1 +
+ README.md                                     |   4 +
  cast/common/BUILD.gn                          |   2 +
  cast/standalone_sender/BUILD.gn               |  27 +
  cast/standalone_sender/audio_capturer.cc      | 417 ++++++++
@@ -33,10 +34,10 @@ Subject: [PATCH] standalone_sender: Wayland desktop/window Cast Streaming
  .../standalone_sender/screen_mirror_sender.cc | 446 ++++++++
  cast/standalone_sender/screen_mirror_sender.h | 133 +++
  discovery/BUILD.gn                            |   1 +
- docs/adr/0001-native-castbridge-backend.md    | 159 +++
+ docs/adr/0001-native-castbridge-backend.md    | 158 +++
  platform/BUILD.gn                             |   1 +
  .../socket_handle_waiter_posix_unittest.cc    |   3 +-
- 31 files changed, 5326 insertions(+), 19 deletions(-)
+ 32 files changed, 5329 insertions(+), 19 deletions(-)
  create mode 100644 cast/standalone_sender/audio_capturer.cc
  create mode 100644 cast/standalone_sender/audio_capturer.h
  create mode 100644 cast/standalone_sender/ext-foreign-toplevel-list-v1-client.h
@@ -69,6 +70,18 @@ index 02206ac8..7c41e6d8 100644
          "osp:osp_demo",
          "third_party/protobuf:protoc($host_toolchain)",
          "third_party/zlib",
+diff --git a/README.md b/README.md
+index 9e2e37de..90308351 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,7 @@
++This repository is a fork of [chromium/openscreen](https://github.com/chromium/openscreen), the Open Screen Library maintained by the Chromium Authors.
++This fork adds a Wayland desktop/window Cast Streaming sender, VAAPI H.264 in the file-cast path, and related standalone_sender / castbridge wiring.
++It is not an official Chromium or Open Screen release.
++
+ # Open Screen Library
+ 
+ The Open Screen Library implements the Open Screen Protocol, Multicast DNS and
 diff --git a/cast/common/BUILD.gn b/cast/common/BUILD.gn
 index cca52ce6..b6c69ad8 100644
 --- a/cast/common/BUILD.gn
@@ -5710,10 +5723,10 @@ index eb5ed41b..6781c28e 100644
    public = []
 diff --git a/docs/adr/0001-native-castbridge-backend.md b/docs/adr/0001-native-castbridge-backend.md
 new file mode 100644
-index 00000000..fbcecca3
+index 00000000..02150dd3
 --- /dev/null
 +++ b/docs/adr/0001-native-castbridge-backend.md
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,158 @@
 +# ADR 0001: Native castbridge Backend for Firefox Cast
 +
 +## Status
@@ -5812,8 +5825,7 @@ index 00000000..fbcecca3
 +
 +- `autoninja -C out/Default cast_sender castbridge` completed successfully.
 +- `castbridge --daemon` started discovery on the active wireless interface.
-+- The daemon discovered a Cast receiver named `43PUS9235/12` at
-+  `192.0.2.10`.
++- The daemon discovered the reference Cast receiver at `<tv-ip>`.
 +- JSON IPC responses work when the client keeps the AF_UNIX connection open.
 +- Some one-shot IPC clients receive zero bytes if they close immediately after
 +  writing a request. (Fixed since — see Follow-up.)
@@ -5900,5 +5912,5 @@ index 7537bb3b..43376324 100644
    ClosePipe(pipe_fds);
  }
 -- 
-2.54.0
+2.56.0
 

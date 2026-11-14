@@ -95,7 +95,12 @@ fails loudly instead of silently building a stale tree. To bump the upstream
   script's own location (no absolute path baked in). Set this to point at any
   other layout (CI, packaging).
 - `OUT_DIR` — gn output dir relative to the checkout (default `out/Default`).
-- `NINJA` — ninja binary (auto-detected; falls back to depot_tools).
+- `NINJA` — ninja binary (default: the DEPS-pinned `third_party/ninja/ninja`,
+  else `ninja` on PATH).
+- `FROM_UPSTREAM=1` — skip the private fork; build upstream at `pin` + the
+  versioned patch (what the AUR package does). The fork path checks out
+  `fork_commit` (not the moving branch tip) and falls back to upstream when that
+  commit is gone or its tree is not `patched=`.
 
 ninja auto-regenerates the gn graph via the buildtools `gn` recorded in
 `build.ninja`, so a separate `gn` on PATH is not required.
