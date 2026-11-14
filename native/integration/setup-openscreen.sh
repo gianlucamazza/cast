@@ -178,10 +178,14 @@ fi
 # build.ninja, not args.gn: a failed `gn gen` leaves args.gn behind.
 if [[ ! -f "$OPENSCREEN_DIR/$OUT_DIR/build.ninja" ]]; then
 	echo "==> gn gen $OUT_DIR with: $GN_ARGS"
-	# The DEPS-pinned gn from the checkout, not depot_tools' python wrapper.
-	GN="$OPENSCREEN_DIR/buildtools/linux64/gn"
-	[[ -x "$GN" ]] || GN="gn"
-	(cd "$OPENSCREEN_DIR" && "$GN" gen "$OUT_DIR" --args="$GN_ARGS")
+	# The DEPS-pinned gn from the checkout, not depot_tools' python wrapper. Resolved
+	# inside the subshell, after the cd, so a relative $OPENSCREEN_DIR works too.
+	(
+		cd "$OPENSCREEN_DIR"
+		GN="$PWD/buildtools/linux64/gn"
+		[[ -x "$GN" ]] || GN="gn"
+		"$GN" gen "$OUT_DIR" --args="$GN_ARGS"
+	)
 else
 	echo "==> $OUT_DIR already configured; leaving as-is"
 fi
