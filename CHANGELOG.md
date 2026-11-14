@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-14
+
 ### Fixed
 
 - Distinguish media completion, explicit stop, interruption and control disconnection via
